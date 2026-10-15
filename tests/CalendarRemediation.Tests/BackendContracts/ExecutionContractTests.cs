@@ -134,6 +134,24 @@ public sealed class ExecutionContractTests
         Assert.False(result.OrganizerVerified);
         Assert.Single(rig.Writer.Writes);
         Assert.Equal(JournalState.Unknown, rig.Journal.Entries[^1].State);
+
+        var observed = await rig.Reader.ReadAsync(ContractFixture.Source.Identity, ContractFixture.Source.Id);
+        Assert.NotNull(observed);
+        Assert.Equal(ContractFixture.Patch.Start, observed.Start);
+        Assert.Equal(ContractFixture.Patch.End, observed.End);
+        var persistedAttempt = rig.Journal.Entries[^1];
+        rig.Writer.Failure = null;
+
+        // ExecuteAsync creates a new executor over the same persisted attempt history.
+        var restarted = Assert.Single(await rig.ExecuteAsync());
+
+        Assert.Equal(ExecutionOutcome.Unknown, restarted.Outcome);
+        Assert.False(restarted.OrganizerVerified);
+        Assert.False(restarted.DeliveryVerified);
+        Assert.Single(rig.Writer.Writes);
+        Assert.Equal(persistedAttempt, rig.Journal.Entries[^1]);
+        Assert.DoesNotContain(rig.Journal.Entries, entry => entry.State == JournalState.Verified);
+        Assert.Equal(2, rig.Reader.Reads);
     }
 
     [Fact]
