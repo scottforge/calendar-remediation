@@ -1,0 +1,89 @@
+@using CalendarRemediation.Host.Review.Models
+@using static CalendarRemediation.Host.Review.Presentation.DemoDisplay
+
+<section class="page-heading">
+    <div>
+        <p class="eyebrow">A LITTLE CLARITY FOR YOUR CALENDAR</p>
+        <h1>Make time match intent.</h1>
+        <p>Review your meetings. Decide what should stay the same.</p>
+    </div>
+    <button class="primary" @onclick="OnPreview">Preview changes ↗</button>
+</section>
+<div class="stats-grid">
+    <button class="stat-card" @onclick='() => OnFilter.InvokeAsync("all")'>
+        <span class="stat-icon blue" aria-hidden="true">▦</span>
+        <span><small>Sample meetings</small><strong>@Meetings.Count<small>in this workspace</small></strong></span>
+    </button>
+    <button class="stat-card" @onclick='() => OnFilter.InvokeAsync("review")'>
+        <span class="stat-icon amber" aria-hidden="true">◷</span>
+        <span><small>Needs your intent</small><strong>@Meetings.Count(m => m.Intent == DemoIntent.Unset)<small>ready to review</small></strong></span>
+    </button>
+    <button class="stat-card" @onclick='() => OnFilter.InvokeAsync("ready")'>
+        <span class="stat-icon green" aria-hidden="true">✓</span>
+        <span><small>Intent confirmed</small><strong>@Meetings.Count(m => m.Intent is DemoIntent.Local or DemoIntent.Instant)<small>included in preview</small></strong></span>
+    </button>
+</div>
+<section class="location-strip">
+    <span class="location-marker" aria-hidden="true">⌖</span>
+    <div><strong>Your review location: @Location.City</strong><p>@Location.Region · Illustrative rule set only</p></div>
+    <button class="secondary" @onclick="OnLocations">Change location →</button>
+</section>
+<section class="panel meetings-panel" aria-labelledby="meetings-title">
+    <div class="panel-heading">
+        <div>
+            <h2 id="meetings-title">Your meetings <span class="count-badge">@Meetings.Count</span></h2>
+            <p>Single-instance samples · November 9–13, 2026 · You organize all meetings</p>
+        </div>
+        <span class="subtle-tag">Internal attendees</span>
+    </div>
+    <div class="table-tools">
+        <div class="filter-tabs" aria-label="Filter meetings">
+            @foreach (var filter in Filters)
+            {
+                <button class="@(filter.Key == ActiveFilter ? "selected" : "")" aria-pressed="@(filter.Key == ActiveFilter)" @onclick="() => OnFilter.InvokeAsync(filter.Key)">@filter.Label</button>
+            }
+        </div>
+        <label class="search-box">
+            <span aria-hidden="true">⌕</span>
+            <span class="sr-only">Search meetings or attendees</span>
+            <input type="search" placeholder="Search meetings…" value="@Search" @oninput='args => OnSearch.InvokeAsync(args.Value?.ToString() ?? "")' />
+        </label>
+    </div>
+    <div class="meeting-list">
+        @foreach (var meeting in FilteredMeetings)
+        {
+            <button class="meeting-row" @onclick="() => OnOpenMeeting.InvokeAsync(meeting)">
+                <span class="date-tile"><small>NOV</small><strong>@meeting.Start.Day</strong></span>
+                <span class="meeting-name"><strong>@meeting.Title</strong><small>@meeting.Category · @meeting.Attendees.Length attendees</small></span>
+                <span class="meeting-time"><strong>@SourceTime(meeting, Location)</strong><small>@meeting.Duration min · source local</small></span>
+                <span class="status-badge @StatusClass(meeting)">● @StatusLabel(meeting)</span>
+                <span class="row-arrow" aria-hidden="true">→</span>
+            </button>
+        }
+        @if (FilteredMeetings.Count == 0)
+        {
+            <div class="empty-state">
+                <h3>No meetings match</h3>
+                <p>Try a different search or show all sample meetings.</p>
+                <button class="secondary" @onclick="OnClearFilters">Clear search &amp; filters</button>
+            </div>
+        }
+    </div>
+    <div class="table-footer"><span>@FilteredMeetings.Count of @Meetings.Count sample meetings</span><span>Only your confirmed choices enter a preview.</span></div>
+</section>
+<p class="footnote">♧ Private by design in this demo. Choices live only in your current connection.</p>
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<DemoMeeting> Meetings { get; set; } = [];
+    [Parameter, EditorRequired] public IReadOnlyList<DemoMeeting> FilteredMeetings { get; set; } = [];
+    [Parameter, EditorRequired] public DemoLocation Location { get; set; } = null!;
+    [Parameter, EditorRequired] public IReadOnlyList<(string Key, string Label)> Filters { get; set; } = [];
+    [Parameter] public string ActiveFilter { get; set; } = "all";
+    [Parameter] public string Search { get; set; } = "";
+    [Parameter] public EventCallback<string> OnFilter { get; set; }
+    [Parameter] public EventCallback<string> OnSearch { get; set; }
+    [Parameter] public EventCallback OnClearFilters { get; set; }
+    [Parameter] public EventCallback<DemoMeeting> OnOpenMeeting { get; set; }
+    [Parameter] public EventCallback OnPreview { get; set; }
+    [Parameter] public EventCallback OnLocations { get; set; }
+}

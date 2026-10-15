@@ -1,0 +1,38 @@
+.batch-summary { display: grid; grid-template-columns: repeat(4, 1fr); border: 1px solid #e0e8f3; border-radius: 11px; background: #fff; margin: 25px 0; padding: 25px 10px; }
+.batch-summary > div { padding: 0 22px; border-right: 1px solid #e8edf5; }
+.batch-summary > div:last-child { border: 0; }
+.batch-summary small { display: block; font-size: 11px; color: #637d9f; margin-bottom: 6px; }
+.batch-summary strong { font-size: 23px; color: #4a6387; font-weight: 600; }
+.preview-row { border-top: 1px solid #e9eef6; padding: 24px; display: flex; align-items: center; justify-content: space-between; gap: 22px; }
+.preview-row .eyebrow { font-size: 8px; letter-spacing: .8px; }
+.preview-row h3 { margin: 7px 0; font-size: 13px; }
+.preview-row p { font-size: 10px; color: #637d9f; margin: 0; }
+.preview-times { display: flex; align-items: center; gap: 15px; }
+.preview-times small { display: block; font-size: 7px; letter-spacing: .5px; color: #657fa3; }
+.preview-times strong { display: block; font-size: 12px; font-weight: 550; color: #5274a5; margin: 6px 0; }
+.preview-times > span:nth-child(2) { color: #8ea9ce; }
+.approval-box { margin: 25px 0; border: 1px solid #d4e2f8; border-radius: 12px; padding: 25px; background: #eaf2ff; display: flex; align-items: center; gap: 30px; }
+.approval-box > div { flex: 1; }
+.approval-box p { font-size: 11px; color: #5778a4; line-height: 1.9; }
+.approval-box .primary { flex-shrink: 0; }
+
+@media (max-width: 1200px) {
+    .preview-row { flex-wrap: wrap; }
+    .preview-times { width: 100%; justify-content: space-between; }
+    .approval-box { flex-wrap: wrap; }
+}
+@media (max-width: 950px) {
+    .batch-summary { grid-template-columns: 1fr 1fr; row-gap: 25px; }
+    .batch-summary > div:nth-child(2) { border: 0; }
+}
+@media (max-width: 700px) {
+    .batch-summary > div { padding: 0 15px; }
+    .batch-summary strong { font-size: 20px; }
+    .preview-row { padding: 20px 16px; }
+    .preview-times { gap: 9px; }
+    .preview-times strong { font-size: 10px; }
+    .preview-times small { font-size: 6px; }
+    .preview-times code { font-size: 8px; }
+    .approval-box { padding: 23px 20px; gap: 15px; }
+    .approval-box .primary { width: 100%; font-size: 11px; }
+}

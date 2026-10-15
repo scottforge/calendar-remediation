@@ -1,0 +1,64 @@
+@using CalendarRemediation.Host.Review.Models
+@using static CalendarRemediation.Host.Review.Presentation.DemoDisplay
+
+<section class="page-heading">
+    <div>
+        <p class="eyebrow">DEMO RESULTS</p>
+        <h1>@(HasResults ? "A little more clarity. All accounted for." : "Your results will appear here.")</h1>
+        <p>@(HasResults ? "The displayed batch was processed in circuit memory only." : "Review intent, preview the exact batch, then run the simulation.")</p>
+    </div>
+    <button class="secondary" @onclick="OnMeetings">Back to meetings</button>
+</section>
+@if (HasResults)
+{
+    <section class="result-hero">
+        <span class="result-check" aria-hidden="true">✓</span>
+        <div>
+            <h2>Simulation complete</h2>
+            <p>@Preview.Count(p => p.Intent == DemoIntent.Local) simulated time updates · @Preview.Count(p => p.Intent == DemoIntent.Instant) unchanged instants · @(MeetingCount - Preview.Count) excluded meetings</p>
+            <strong>No real meetings were changed.</strong>
+        </div>
+    </section>
+    <section class="panel">
+        <div class="panel-heading">
+            <div>
+                <h2>Every decision, visible</h2>
+                <p>Illustrative outcomes. No organizer-side or attendee-side verification took place.</p>
+            </div>
+        </div>
+        @foreach (var item in Preview)
+        {
+            <div class="result-row">
+                <span class="result-tick" aria-hidden="true">✓</span>
+                <div>
+                    <strong>@item.Title</strong>
+                    <p>@item.Id · @item.After.ToString("MMM d, yyyy", Culture) · @LocalTime(item.After, Location.TargetOffset) @Location.City · @UtcTime(item.After)</p>
+                </div>
+                <span class="status-badge green">@(item.Intent == DemoIntent.Local ? "Simulated update" : "No change needed")</span>
+            </div>
+        }
+    </section>
+    <div class="detail-actions">
+        <button class="secondary" @onclick="OnPreview">View exact batch</button>
+        <button class="primary" @onclick="OnReset">Start a fresh demo ↻</button>
+    </div>
+}
+else
+{
+    <section class="panel empty-state">
+        <div class="empty-icon" aria-hidden="true">✓</div>
+        <h2>Nothing has been simulated yet.</h2>
+        <p>You can explore freely. Approval happens on the exact preview.</p>
+        <button class="primary" @onclick="OnPreview">Open preview →</button>
+    </section>
+}
+
+@code {
+    [Parameter] public bool HasResults { get; set; }
+    [Parameter, EditorRequired] public IReadOnlyList<DemoPreview> Preview { get; set; } = [];
+    [Parameter, EditorRequired] public DemoLocation Location { get; set; } = null!;
+    [Parameter] public int MeetingCount { get; set; }
+    [Parameter] public EventCallback OnMeetings { get; set; }
+    [Parameter] public EventCallback OnPreview { get; set; }
+    [Parameter] public EventCallback OnReset { get; set; }
+}

@@ -1,0 +1,46 @@
+@using CalendarRemediation.Host.Review.Models
+@using static CalendarRemediation.Host.Review.Presentation.DemoDisplay
+
+<section class="page-heading">
+    <div>
+        <p class="eyebrow">START WITH THE PLACE</p>
+        <h1>Where does local mean?</h1>
+        <p>Choose a sample city to explore how a different rule changes a meeting.</p>
+    </div>
+</section>
+<div class="location-grid">
+    @foreach (var city in Locations)
+    {
+        <button class="city-card @(city == Location ? "chosen" : "")" aria-pressed="@(city == Location)" @onclick="() => OnChooseLocation.InvokeAsync(city)">
+            <div class="city-art @city.Art" aria-hidden="true">
+                <span class="sun"></span>
+                <span class="mountain one"></span>
+                <span class="mountain two"></span>
+                <span class="skyline"></span>
+                <span class="water"></span>
+            </div>
+            <div class="city-content">
+                <span class="city-check">@(city == Location ? "✓" : "+")</span>
+                <h2>@city.City</h2>
+                <p>@city.Region</p>
+                <small>Source UTC@(Offset(city.SourceOffset)) → target UTC@(Offset(city.TargetOffset))</small>
+            </div>
+        </button>
+    }
+</div>
+<section class="panel rule-note">
+    <span class="stat-icon blue" aria-hidden="true">i</span>
+    <div>
+        <h2>Made-up rules. Concrete comparisons.</h2>
+        <p>For November 9–13, 2026, this fixture assigns each city the fixed source and target offsets shown above. These are hypothetical inputs, not verified historical rules or a claim about any provincial transition policy.</p>
+        <p>Changing the city clears previous previews, results, and meeting intent choices. Confirm intent again for the new location.</p>
+        <button class="primary" @onclick="OnMeetings">Review meetings in @Location.City →</button>
+    </div>
+</section>
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<DemoLocation> Locations { get; set; } = [];
+    [Parameter, EditorRequired] public DemoLocation Location { get; set; } = null!;
+    [Parameter] public EventCallback<DemoLocation> OnChooseLocation { get; set; }
+    [Parameter] public EventCallback OnMeetings { get; set; }
+}

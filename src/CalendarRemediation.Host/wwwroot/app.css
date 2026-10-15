@@ -20,6 +20,17 @@
 .app-shell .green { background: #edf8f3; color: #387b60; }
 .app-shell .neutral { background: #eef1f5; color: #63728a; }
 .app-shell .status-badge { display: inline-flex; align-items: center; justify-content: center; gap: 6px; border-radius: 5px; padding: 5px 9px; font-size: 10px; font-weight: 550; width: fit-content; white-space: nowrap; }
+.app-shell .avatar { display: inline-flex; align-items: center; justify-content: center; background: #e8eafa; color: #64558e; font-size: 11px; width: 35px; height: 35px; border-radius: 50%; flex-shrink: 0; font-weight: 700; }
+.app-shell .stat-icon { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; border-radius: 12px; font-size: 24px; flex-shrink: 0; }
+.app-shell .panel-heading { padding: 23px 24px 20px; display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+.app-shell .panel-heading p { margin: 7px 0 0; font-size: 11px; color: #6e809c; }
+.app-shell .subtle-tag { display: inline-block; background: #f5f7fb; border: 1px solid #e9edf4; padding: 4px 9px; border-radius: 5px; color: #657b99; font-size: 10px; white-space: nowrap; }
+.app-shell code { font-family: "SFMono-Regular", Consolas, monospace; color: #5c789f; font-size: 10px; }
+.app-shell .detail-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 27px 0; }
+.app-shell .detail-actions .primary { margin-left: auto; }
+.app-shell .empty-state { text-align: center; padding: 60px 25px; }
+.app-shell .empty-state p { font-size: 13px; color: #657e9f; max-width: 550px; margin: 15px auto 24px; }
+.app-shell .empty-icon { color: #7399d4; background: #eef4fe; width: 65px; height: 65px; border-radius: 18px; margin: 0 auto 22px; font-size: 34px; line-height: 65px; }
 * { box-sizing: border-box; }
 body { margin: 0; }
 button, input, select { font: inherit; }
@@ -38,12 +49,21 @@ button, a, input { transition: background-color .15s ease, border-color .15s eas
 .route-content > section label { display: block; margin-top: 1rem; }
 @media (min-width: 1550px) { .app-shell .page-heading { margin-top: 45px; margin-bottom: 35px; } }
 @media (max-width: 950px) { .app-shell .page-heading { flex-wrap: wrap; gap: 20px; } }
+@media (max-width: 950px) {
+    .app-shell .stat-icon { margin-bottom: 12px; width: 35px; height: 35px; font-size: 21px; }
+    .app-shell .detail-actions .primary { margin-left: 0; }
+}
 @media (max-width: 700px) {
     .app-shell .page-heading { margin-top: 28px; }
     .app-shell h1 { font-size: 31px; letter-spacing: -1px; }
     .app-shell .page-heading p:not(.eyebrow) { font-size: 12px; }
     .app-shell .eyebrow { font-size: 8px; letter-spacing: 1.3px; }
     .app-shell h2 { font-size: 16px; }
+    .app-shell .panel-heading { padding: 20px 17px; flex-wrap: wrap; }
+    .app-shell .panel-heading p { font-size: 10px; line-height: 1.8; }
+    .app-shell .detail-actions { gap: 9px; }
+    .app-shell .detail-actions .secondary { flex: 1; padding: 10px; font-size: 10px; }
+    .app-shell .detail-actions .primary { width: 100%; }
 }
 .route-content > section select, .route-content > section input { padding: .7rem; max-width: 100%; }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; animation: none !important; } }

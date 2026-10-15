@@ -1,0 +1,79 @@
+@using CalendarRemediation.Host.Review.Models
+@using static CalendarRemediation.Host.Review.Presentation.DemoDisplay
+
+<section class="page-heading">
+    <div>
+        <p class="eyebrow">THE EXACT DEMO BATCH</p>
+        <h1>A clear view before you approve.</h1>
+        <p>Only the identities and changes listed here are included.</p>
+    </div>
+    <button class="secondary" @onclick="OnMeetings">Return to meetings</button>
+</section>
+@if (Preview.Count == 0)
+{
+    <section class="panel empty-state">
+        <div class="empty-icon" aria-hidden="true">▤</div>
+        <h2>Your preview starts with intent.</h2>
+        <p>Confirm a local-time or absolute-instant choice to build a batch. Skipped and unresolved meetings stay out.</p>
+        <button class="primary" @onclick="OnReview">Review a meeting →</button>
+    </section>
+}
+else
+{
+    <div class="batch-summary">
+        <div><small>Exact batch</small><strong>@Preview.Count meetings</strong></div>
+        <div><small>Time updates</small><strong>@Preview.Count(p => p.Intent == DemoIntent.Local)</strong></div>
+        <div><small>No-change decisions</small><strong>@Preview.Count(p => p.Intent == DemoIntent.Instant)</strong></div>
+        <div><small>Excluded from batch</small><strong>@(MeetingCount - Preview.Count)</strong></div>
+    </div>
+    <section class="panel preview-panel">
+        <div class="panel-heading">
+            <div>
+                <h2>Proposed schedule in @Location.City</h2>
+                <p>Fixture rules: source UTC@(Offset(Location.SourceOffset)) → target UTC@(Offset(Location.TargetOffset)) · November 2026</p>
+            </div>
+            <span class="subtle-tag">Batch @BatchVersion.ToString("D2")</span>
+        </div>
+        @foreach (var item in Preview)
+        {
+            <article class="preview-row">
+                <div>
+                    <span class="eyebrow">@item.Id · @item.Before.ToString("MMM d, yyyy", Culture)</span>
+                    <h3>@item.Title</h3>
+                    <p>@(item.Intent == DemoIntent.Local ? "Preserve local start · update start and end" : "Preserve absolute instant · no write")</p>
+                </div>
+                <div class="preview-times">
+                    <span>
+                        <small>NO UPDATE · TARGET LOCAL</small>
+                        <strong>@LocalTime(item.Before, Location.TargetOffset)–@LocalTime(item.Before.AddMinutes(item.Duration), Location.TargetOffset)</strong>
+                        <code>@UtcTime(item.Before)–@UtcTime(item.Before.AddMinutes(item.Duration))</code>
+                    </span>
+                    <span aria-hidden="true">→</span>
+                    <span>
+                        <small>APPROVED OUTCOME · TARGET LOCAL</small>
+                        <strong>@LocalTime(item.After, Location.TargetOffset)–@LocalTime(item.After.AddMinutes(item.Duration), Location.TargetOffset)</strong>
+                        <code>@UtcTime(item.After)–@UtcTime(item.After.AddMinutes(item.Duration))</code>
+                    </span>
+                </div>
+            </article>
+        }
+    </section>
+    <section class="approval-box">
+        <div>
+            <h2>You’re approving a simulation.</h2>
+            <p>Exact identities: @string.Join(", ", Preview.Select(p => p.Id)). Time updates could notify attendees in a real provider. Delivery, responses, room effects, guard checks, and persistence are not simulated or verified here.</p>
+            <p>Approval applies only to this displayed batch. No real writes or notifications occur.</p>
+        </div>
+        <button class="primary" @onclick="OnApprove">Approve &amp; simulate @Preview.Count decisions →</button>
+    </section>
+}
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<DemoPreview> Preview { get; set; } = [];
+    [Parameter, EditorRequired] public DemoLocation Location { get; set; } = null!;
+    [Parameter] public int MeetingCount { get; set; }
+    [Parameter] public int BatchVersion { get; set; }
+    [Parameter] public EventCallback OnMeetings { get; set; }
+    [Parameter] public EventCallback OnReview { get; set; }
+    [Parameter] public EventCallback OnApprove { get; set; }
+}

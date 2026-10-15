@@ -7,54 +7,74 @@
     <aside class="sidebar" aria-label="Workspace navigation">
         <a class="wordmark" href="/"><span class="brand-icon" aria-hidden="true">cr</span><span>calendar<small>remediation</small></span></a>
         <p class="workspace-label">YOUR WORKSPACE</p>
-        <nav>@foreach (var item in Navigation) { <button class="nav-item @(view == item.Key ? "active" : "")" aria-current="@(view == item.Key ? "page" : null)" @onclick="() => Navigate(item.Key)"><span aria-hidden="true">@item.Icon</span>@item.Label @if (item.Key == "meetings") { <small>@meetings.Count</small> }</button> }</nav>
-        <div class="sidebar-bottom"><div class="sidebar-tip"><span aria-hidden="true">✧</span><strong>Your intent. Your decision.</strong><p>Understand the difference before making a change.</p></div><button class="nav-item" @onclick='() => Navigate("help")'><span aria-hidden="true">?</span>Help &amp; demo guide</button><div class="profile"><span class="avatar">JD</span><div><strong>Jamie Davis</strong><small>Sample organizer</small></div><span class="demo-small">DEMO</span></div></div>
+        <nav>
+            @foreach (var item in Navigation)
+            {
+                <button class="nav-item @(view == item.Key ? "active" : "")" aria-current="@(view == item.Key ? "page" : null)" @onclick="() => Navigate(item.Key)">
+                    <span aria-hidden="true">@item.Icon</span>@item.Label
+                    @if (item.Key == "meetings")
+                    {
+                        <small>@meetings.Count</small>
+                    }
+                </button>
+            }
+        </nav>
+        <div class="sidebar-bottom">
+            <div class="sidebar-tip">
+                <span aria-hidden="true">✧</span>
+                <strong>Your intent. Your decision.</strong>
+                <p>Understand the difference before making a change.</p>
+            </div>
+            <button class="nav-item" @onclick='() => Navigate("help")'><span aria-hidden="true">?</span>Help &amp; demo guide</button>
+            <div class="profile">
+                <span class="avatar">JD</span>
+                <div><strong>Jamie Davis</strong><small>Sample organizer</small></div>
+                <span class="demo-small">DEMO</span>
+            </div>
+        </div>
     </aside>
     <div class="main-shell">
-        <header class="topbar"><div><span>Workspace</span><span class="crumb-divider">/</span><strong>@ViewTitle</strong></div><span class="session-pill">● Demo session</span></header>
+        <header class="topbar">
+            <div><span>Workspace</span><span class="crumb-divider">/</span><strong>@ViewTitle</strong></div>
+            <span class="session-pill">● Demo session</span>
+        </header>
         <main id="main-content" class="content" tabindex="-1" @ref="mainContent">
-            <div class="demo-banner"><span class="banner-icon" aria-hidden="true">i</span><p><strong>A safe space to explore.</strong> Meetings, AI suggestions, time rules, and results are illustrative. No calendar is connected or changed.</p><button class="text-button" @onclick='() => Navigate("help")'>About this demo ↗</button></div>
-            @if (!string.IsNullOrEmpty(message)) { <div class="feedback" role="status">@message</div> }
+            <div class="demo-banner">
+                <span class="banner-icon" aria-hidden="true">i</span>
+                <p><strong>A safe space to explore.</strong> Meetings, AI suggestions, time rules, and results are illustrative. No calendar is connected or changed.</p>
+                <button class="text-button" @onclick='() => Navigate("help")'>About this demo ↗</button>
+            </div>
+            @if (!string.IsNullOrEmpty(message))
+            {
+                <div class="feedback" role="status">@message</div>
+            }
             @if (view == "meetings")
             {
-                <section class="page-heading"><div><p class="eyebrow">A LITTLE CLARITY FOR YOUR CALENDAR</p><h1>Make time match intent.</h1><p>Review your meetings. Decide what should stay the same.</p></div><button class="primary" @onclick="OpenPreview">Preview changes ↗</button></section>
-                <div class="stats-grid"><button class="stat-card" @onclick='() => SetFilter("all")'><span class="stat-icon blue" aria-hidden="true">▦</span><span><small>Sample meetings</small><strong>@meetings.Count<small>in this workspace</small></strong></span></button><button class="stat-card" @onclick='() => SetFilter("review")'><span class="stat-icon amber" aria-hidden="true">◷</span><span><small>Needs your intent</small><strong>@meetings.Count(m => m.Intent == DemoIntent.Unset)<small>ready to review</small></strong></span></button><button class="stat-card" @onclick='() => SetFilter("ready")'><span class="stat-icon green" aria-hidden="true">✓</span><span><small>Intent confirmed</small><strong>@meetings.Count(m => m.Intent is DemoIntent.Local or DemoIntent.Instant)<small>included in preview</small></strong></span></button></div>
-                <section class="location-strip"><span class="location-marker" aria-hidden="true">⌖</span><div><strong>Your review location: @location.City</strong><p>@location.Region · Illustrative rule set only</p></div><button class="secondary" @onclick='() => Navigate("locations")'>Change location →</button></section>
-                <section class="panel meetings-panel" aria-labelledby="meetings-title"><div class="panel-heading"><div><h2 id="meetings-title">Your meetings <span class="count-badge">@meetings.Count</span></h2><p>Single-instance samples · November 9–13, 2026 · You organize all meetings</p></div><span class="subtle-tag">Internal attendees</span></div><div class="table-tools"><div class="filter-tabs" aria-label="Filter meetings">@foreach (var filter in Filters) { <button class="@(filter.Key == activeFilter ? "selected" : "")" aria-pressed="@(filter.Key == activeFilter)" @onclick="() => SetFilter(filter.Key)">@filter.Label</button> }</div><label class="search-box"><span aria-hidden="true">⌕</span><span class="sr-only">Search meetings or attendees</span><input type="search" placeholder="Search meetings…" @bind="search" @bind:event="oninput" /></label></div>
-                    <div class="meeting-list">@foreach (var meeting in FilteredMeetings) { <button class="meeting-row" @onclick="() => OpenMeeting(meeting)"><span class="date-tile"><small>NOV</small><strong>@meeting.Start.Day</strong></span><span class="meeting-name"><strong>@meeting.Title</strong><small>@meeting.Category · @meeting.Attendees.Length attendees</small></span><span class="meeting-time"><strong>@SourceTime(meeting)</strong><small>@meeting.Duration min · source local</small></span><span class="status-badge @StatusClass(meeting)">● @StatusLabel(meeting)</span><span class="row-arrow" aria-hidden="true">→</span></button> }@if (!FilteredMeetings.Any()) { <div class="empty-state"><h3>No meetings match</h3><p>Try a different search or show all sample meetings.</p><button class="secondary" @onclick="ClearFilters">Clear search &amp; filters</button></div> }</div><div class="table-footer"><span>@FilteredMeetings.Count() of @meetings.Count sample meetings</span><span>Only your confirmed choices enter a preview.</span></div></section>
-                <p class="footnote">♧ Private by design in this demo. Choices live only in your current connection.</p>
+                <MeetingWorkspaceView Meetings="meetings" FilteredMeetings="FilteredMeetings.ToArray()" Location="location"
+                                      Filters="Filters" ActiveFilter="@activeFilter" Search="@search"
+                                      OnFilter="SetFilter" OnSearch="@(value => search = value)" OnClearFilters="ClearFilters"
+                                      OnOpenMeeting="OpenMeeting" OnPreview="OpenPreview" OnLocations='@(() => Navigate("locations"))' />
             }
             else if (view == "locations")
             {
-                <section class="page-heading"><div><p class="eyebrow">START WITH THE PLACE</p><h1>Where does local mean?</h1><p>Choose a sample city to explore how a different rule changes a meeting.</p></div></section>
-                <div class="location-grid">@foreach (var city in Locations) { <button class="city-card @(city == location ? "chosen" : "")" aria-pressed="@(city == location)" @onclick="() => ChooseLocation(city)"><div class="city-art @city.Art" aria-hidden="true"><span class="sun"></span><span class="mountain one"></span><span class="mountain two"></span><span class="skyline"></span><span class="water"></span></div><div class="city-content"><span class="city-check">@(city == location ? "✓" : "+")</span><h2>@city.City</h2><p>@city.Region</p><small>Source UTC@(Offset(city.SourceOffset)) → target UTC@(Offset(city.TargetOffset))</small></div></button> }</div>
-                <section class="panel rule-note"><span class="stat-icon blue" aria-hidden="true">i</span><div><h2>Made-up rules. Concrete comparisons.</h2><p>For November 9–13, 2026, this fixture assigns each city the fixed source and target offsets shown above. These are hypothetical inputs, not verified historical rules or a claim about any provincial transition policy.</p><p>Changing the city clears previous previews, results, and meeting intent choices. Confirm intent again for the new location.</p><button class="primary" @onclick='() => Navigate("meetings")'>Review meetings in @location.City →</button></div></section>
+                <LocationsView Locations="Locations" Location="location" OnChooseLocation="ChooseLocation" OnMeetings='@(() => Navigate("meetings"))' />
             }
             else if (view == "detail")
             {
-                <div class="detail-breadcrumb"><button class="text-button" @onclick='() => Navigate("meetings")'>← All meetings</button><span>Meeting @(meetings.IndexOf(selectedMeeting) + 1) of @meetings.Count</span></div>
-                <section class="page-heading"><div><p class="eyebrow">REVIEW MEETING INTENT</p><h1>@selectedMeeting.Title</h1><p>@selectedMeeting.Start.ToString("dddd, MMMM d, yyyy", Culture) · @selectedMeeting.Duration minutes · Single instance</p></div><span class="status-badge @StatusClass(selectedMeeting)">@StatusLabel(selectedMeeting)</span></section>
-                <div class="detail-grid"><div><section class="panel intent-panel"><p class="eyebrow">YOUR CONFIRMATION</p><h2>What should stay the same?</h2><p>Think about why this meeting happens at this time. Choose the interpretation you intend for this sample.</p><button class="intent-card @(selectedMeeting.Intent == DemoIntent.Local ? "chosen" : "")" aria-pressed="@(selectedMeeting.Intent == DemoIntent.Local)" @onclick="() => SetIntent(DemoIntent.Local)"><span class="choice-circle">@(selectedMeeting.Intent == DemoIntent.Local ? "●" : "")</span><span><strong>Keep the local start time</strong><small>Keep @SourceTime(selectedMeeting) in @location.City. The UTC instant moves forward one hour.</small></span><span class="intent-symbol" aria-hidden="true">◷</span></button><button class="intent-card @(selectedMeeting.Intent == DemoIntent.Instant ? "chosen" : "")" aria-pressed="@(selectedMeeting.Intent == DemoIntent.Instant)" @onclick="() => SetIntent(DemoIntent.Instant)"><span class="choice-circle">@(selectedMeeting.Intent == DemoIntent.Instant ? "●" : "")</span><span><strong>Keep the absolute instant</strong><small>Keep @UtcTime(selectedMeeting.Start). In @location.City, it displays as @TargetTime(selectedMeeting, DemoIntent.Instant).</small></span><span class="intent-symbol" aria-hidden="true">◎</span></button><div class="intent-alternatives"><button class="secondary @(selectedMeeting.Intent == DemoIntent.Skip ? "chosen" : "")" aria-pressed="@(selectedMeeting.Intent == DemoIntent.Skip)" @onclick="() => SetIntent(DemoIntent.Skip)">Skip this meeting</button><button class="text-button" @onclick="() => SetIntent(DemoIntent.Unset)">I’m not sure / clear choice</button></div><p class="confirmation-note" role="status">@IntentNote</p></section>
-                    <section class="panel comparison-panel"><div class="panel-heading"><div><h2>See the time, not just the label</h2><p>@location.City · @selectedMeeting.Start.ToString("MMM d, yyyy", Culture) · @selectedMeeting.Duration-minute duration preserved</p></div></div><div class="time-comparison"><div><small>STORED / SOURCE RULE</small><strong>@SourceTime(selectedMeeting)</strong><p>UTC@(Offset(location.SourceOffset))</p><code>@UtcTime(selectedMeeting.Start)</code></div><span class="comparison-arrow" aria-hidden="true">→</span><div class="target-time"><small>@(selectedMeeting.Intent == DemoIntent.Local ? "YOUR CHOICE · KEEP LOCAL" : "NO UPDATE · TARGET RULE")</small><strong>@TargetTime(selectedMeeting, selectedMeeting.Intent)</strong><p>UTC@(Offset(location.TargetOffset))</p><code>@UtcTime(ProposedStart(selectedMeeting, selectedMeeting.Intent))</code></div></div><p class="comparison-caption">Without an update: @TargetTime(selectedMeeting, DemoIntent.Instant) local at the same stored instant. @(selectedMeeting.Intent == DemoIntent.Local ? "Your choice moves both start and end forward 60 minutes." : "This comparison leaves the stored start and end unchanged.")</p></section></div>
-                    <aside class="detail-aside"><section class="panel ai-panel"><div class="ai-heading"><span aria-hidden="true">✧</span><strong>An extra perspective</strong><span class="subtle-tag">Mock AI</span></div><h3>Could this be a local-time anchor?</h3><p>@selectedMeeting.Hypothesis</p><div class="evidence-label">OBSERVED SAMPLE FACTS</div><ul><li>Title: @selectedMeeting.Title</li><li>Organizer: Jamie Davis (sample)</li><li>@selectedMeeting.Attendees.Length internal sample attendees</li></ul><div class="hypothesis-note">A hypothesis, not a finding. No model ran. These clues cannot establish intent. Your choice is recorded separately.</div></section><section class="panel people-panel"><h2>Who’s invited</h2><div class="attendee-avatars" aria-hidden="true">@foreach (var person in selectedMeeting.Attendees.Take(4)) { <span class="avatar">@Initials(person)</span> }</div><p>Jamie Davis · Organizer</p><button class="text-button" aria-expanded="@showAttendees" @onclick="() => showAttendees = !showAttendees">@(showAttendees ? "Hide attendee list ↑" : $"View all {selectedMeeting.Attendees.Length} attendees ↓")</button>@if (showAttendees) { <ul class="attendee-list">@foreach (var person in selectedMeeting.Attendees) { <li>@person <small>Internal · sample</small></li> }</ul> }<p class="small-note">Real invitation delivery and attendee responses are not modeled.</p></section></aside></div>
-                <div class="detail-actions"><button class="secondary" @onclick="() => MoveMeeting(-1)">← Previous meeting</button><button class="secondary" @onclick="() => MoveMeeting(1)">Next meeting →</button><button class="primary" @onclick="OpenPreview">Preview confirmed choices ↗</button></div>
+                <MeetingReviewView Meeting="selectedMeeting" Location="location" MeetingNumber="@(meetings.IndexOf(selectedMeeting) + 1)"
+                                   MeetingCount="meetings.Count" ShowAttendees="showAttendees"
+                                   OnToggleAttendees="@(() => showAttendees = !showAttendees)" OnIntent="SetIntent"
+                                   OnMove="MoveMeeting" OnPreview="OpenPreview" OnMeetings='@(() => Navigate("meetings"))' />
             }
             else if (view == "preview")
             {
-                <section class="page-heading"><div><p class="eyebrow">THE EXACT DEMO BATCH</p><h1>A clear view before you approve.</h1><p>Only the identities and changes listed here are included.</p></div><button class="secondary" @onclick='() => Navigate("meetings")'>Return to meetings</button></section>
-                @if (preview.Count == 0) { <section class="panel empty-state"><div class="empty-icon" aria-hidden="true">▤</div><h2>Your preview starts with intent.</h2><p>Confirm a local-time or absolute-instant choice to build a batch. Skipped and unresolved meetings stay out.</p><button class="primary" @onclick="ReviewNext">Review a meeting →</button></section> }
-                else
-                {
-                    <div class="batch-summary"><div><small>Exact batch</small><strong>@preview.Count meetings</strong></div><div><small>Time updates</small><strong>@preview.Count(p => p.Intent == DemoIntent.Local)</strong></div><div><small>No-change decisions</small><strong>@preview.Count(p => p.Intent == DemoIntent.Instant)</strong></div><div><small>Excluded from batch</small><strong>@(meetings.Count - preview.Count)</strong></div></div>
-                    <section class="panel preview-panel"><div class="panel-heading"><div><h2>Proposed schedule in @location.City</h2><p>Fixture rules: source UTC@(Offset(location.SourceOffset)) → target UTC@(Offset(location.TargetOffset)) · November 2026</p></div><span class="subtle-tag">Batch @batchVersion.ToString("D2")</span></div>@foreach (var item in preview) { <article class="preview-row"><div><span class="eyebrow">@item.Id · @item.Before.ToString("MMM d, yyyy", Culture)</span><h3>@item.Title</h3><p>@(item.Intent == DemoIntent.Local ? "Preserve local start · update start and end" : "Preserve absolute instant · no write")</p></div><div class="preview-times"><span><small>NO UPDATE · TARGET LOCAL</small><strong>@LocalTime(item.Before, location.TargetOffset)–@LocalTime(item.Before.AddMinutes(item.Duration), location.TargetOffset)</strong><code>@UtcTime(item.Before)–@UtcTime(item.Before.AddMinutes(item.Duration))</code></span><span aria-hidden="true">→</span><span><small>APPROVED OUTCOME · TARGET LOCAL</small><strong>@LocalTime(item.After, location.TargetOffset)–@LocalTime(item.After.AddMinutes(item.Duration), location.TargetOffset)</strong><code>@UtcTime(item.After)–@UtcTime(item.After.AddMinutes(item.Duration))</code></span></div></article> }</section>
-                    <section class="approval-box"><div><h2>You’re approving a simulation.</h2><p>Exact identities: @string.Join(", ", preview.Select(p => p.Id)). Time updates could notify attendees in a real provider. Delivery, responses, room effects, guard checks, and persistence are not simulated or verified here.</p><p>Approval applies only to this displayed batch. No real writes or notifications occur.</p></div><button class="primary" @onclick="ApproveDemo">Approve &amp; simulate @preview.Count decisions →</button></section>
-                }
+                <ChangePreviewView Preview="preview" MeetingCount="meetings.Count" Location="location" BatchVersion="batchVersion"
+                                   OnMeetings='@(() => Navigate("meetings"))' OnReview="ReviewNext" OnApprove="ApproveDemo" />
             }
             else if (view == "results")
             {
-                <section class="page-heading"><div><p class="eyebrow">DEMO RESULTS</p><h1>@(hasResults ? "A little more clarity. All accounted for." : "Your results will appear here.")</h1><p>@(hasResults ? "The displayed batch was processed in circuit memory only." : "Review intent, preview the exact batch, then run the simulation.")</p></div><button class="secondary" @onclick='() => Navigate("meetings")'>Back to meetings</button></section>
-                @if (hasResults) { <section class="result-hero"><span class="result-check" aria-hidden="true">✓</span><div><h2>Simulation complete</h2><p>@preview.Count(p => p.Intent == DemoIntent.Local) simulated time updates · @preview.Count(p => p.Intent == DemoIntent.Instant) unchanged instants · @(meetings.Count - preview.Count) excluded meetings</p><strong>No real meetings were changed.</strong></div></section><section class="panel"><div class="panel-heading"><div><h2>Every decision, visible</h2><p>Illustrative outcomes. No organizer-side or attendee-side verification took place.</p></div></div>@foreach (var item in preview) { <div class="result-row"><span class="result-tick" aria-hidden="true">✓</span><div><strong>@item.Title</strong><p>@item.Id · @item.After.ToString("MMM d, yyyy", Culture) · @LocalTime(item.After, location.TargetOffset) @location.City · @UtcTime(item.After)</p></div><span class="status-badge green">@(item.Intent == DemoIntent.Local ? "Simulated update" : "No change needed")</span></div> }</section><div class="detail-actions"><button class="secondary" @onclick="OpenPreview">View exact batch</button><button class="primary" @onclick="ResetDemo">Start a fresh demo ↻</button></div> }
-                else { <section class="panel empty-state"><div class="empty-icon" aria-hidden="true">✓</div><h2>Nothing has been simulated yet.</h2><p>You can explore freely. Approval happens on the exact preview.</p><button class="primary" @onclick="OpenPreview">Open preview →</button></section> }
+                <DemoResultsView HasResults="hasResults" Preview="preview" MeetingCount="meetings.Count" Location="location"
+                                 OnMeetings='@(() => Navigate("meetings"))' OnPreview="OpenPreview" OnReset="ResetDemo" />
             }
             else if (view == "help")
             {
