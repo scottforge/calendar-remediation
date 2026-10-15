@@ -1,0 +1,9 @@
+:root {
+    --color-white: #fff;
+    --color-ink: #26364d;
+    --color-muted-blue: #637d9f;
+    --color-primary: #326bd9;
+    --color-panel-border: #e0e8f2;
+    --radius-panel: 12px;
+    --space-panel: 28px;
+}

@@ -1,0 +1,48 @@
+<section class="page-heading">
+    <div>
+        <p class="eyebrow">A QUICK ORIENTATION</p>
+        <h1>A thoughtful review, at your pace.</h1>
+        <p>Explore any section. There’s no mandatory sequence or hidden change.</p>
+    </div>
+</section>
+
+<div class="help-grid">
+    <section class="panel help-card">
+        <h2>How to explore</h2>
+        <ol>
+            <li>Choose an illustrative city and inspect its fixture offsets.</li>
+            <li>Compare a meeting’s local time with its stored UTC instant.</li>
+            <li>Confirm intent, skip, or leave the question open.</li>
+            <li>Preview the exact batch and approve a simulation.</li>
+        </ol>
+        <button class="primary" @onclick="OnExplore">Explore the meetings →</button>
+    </section>
+
+    <section class="panel help-card">
+        <h2>What is real here?</h2>
+        <p>Controls, per-meeting choices, filtering, comparisons, and navigation work. People, AI hypotheses, rules, and outcomes are synthetic.</p>
+        <p>Side effects stay in this Interactive Server circuit. Nothing is saved to a database or sent to a calendar or model. A fresh connection resets this demo.</p>
+        <button class="secondary" @onclick="OnReset">Reset sample workspace ↻</button>
+    </section>
+
+    <section class="panel help-card">
+        <h2>Calendar connection status</h2>
+        <span class="status-badge amber">Not connected</span>
+        <p>The separate command-line runner supports Windows sign-in and bounded Graph read probes. This web workspace does not acquire credentials or change meetings.</p>
+        <a class="text-link" href="/feasibility">View calendar pilot feasibility ↗</a>
+    </section>
+
+    <section class="panel help-card">
+        <h2>Before a real pilot</h2>
+        <p>UTC timestamps alone do not establish intent. Production evaluation needs confirmed source rules, applicable locality, current eligibility, exact approval, and atomic guarded writes.</p>
+        <p>This demo does not prove provider support, retry safety, invitation delivery, or transition policy. Samples are organizer-owned single instances with internal attendees.</p>
+    </section>
+</div>
+
+@code {
+    [Parameter]
+    public EventCallback OnExplore { get; set; }
+
+    [Parameter]
+    public EventCallback OnReset { get; set; }
+}

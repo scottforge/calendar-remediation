@@ -1,0 +1,50 @@
+@page "/feasibility"
+@using CalendarRemediation.Core.Feasibility
+@using CalendarRemediation.Host.Feasibility
+@using CalendarRemediation.Host.Agent
+@using Microsoft.AspNetCore.Components.Web
+@inject IConfiguration Configuration
+
+<PageTitle>Feasibility assessment</PageTitle>
+<h1>Calendar pilot feasibility</h1>
+<p>This read-only status has no Graph credentials, model calls or mutation controls.</p>
+<p>Run the feasibility evidence tool to collect evidence and configure Feasibility:EvidencePath to inspect its assessment here.</p>
+<h2>@assessment.Verdict</h2>
+<p>exit allowed: @assessment.ExitAllowed</p>
+<table>
+    <caption>Required evidence gates</caption>
+    <thead><tr><th scope="col">Gate</th><th scope="col">Assessment</th></tr></thead>
+    <tbody>
+        @foreach (var gate in assessment.Gates)
+        {
+            <tr><th scope="row">@gate.Gate</th><td>@(gate.Passed ? "Reviewed evidence recorded" : "Held")</td></tr>
+        }
+    </tbody>
+</table>
+<ul>
+    @foreach (var blocker in assessment.Blockers)
+    {
+        <li>@blocker</li>
+    }
+</ul>
+<p>Artifact integrity and recorded human attestations do not independently prove external claims.</p>
+<h2>Provisional model boundary</h2>
+<p>@ProvisionalModelDecision.Provider, @ProvisionalModelDecision.Model at @ProvisionalModelDecision.Endpoint</p>
+<p>@ProvisionalModelDecision.PrivacyStatus</p>
+
+@code {
+    private GateAssessment assessment = FeasibilityGate.Assess(FeasibilityDefaults.Create(DateTimeOffset.UtcNow), DateTimeOffset.UtcNow, new HashSet<string>());
+
+    protected override void OnInitialized()
+    {
+        var path = Configuration["Feasibility:EvidencePath"];
+        if (!string.IsNullOrWhiteSpace(path))
+        {
+            try { assessment = EvidenceFiles.Assess(path, DateTimeOffset.UtcNow); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Text.Json.JsonException or ArgumentException or NullReferenceException)
+            {
+                assessment = new(ProductVerdict.Blocked, false, [], ["Configured evidence is unreadable or invalid. Inspect it locally with the CLI."]);
+            }
+        }
+    }
+}

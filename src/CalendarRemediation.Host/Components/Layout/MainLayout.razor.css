@@ -1,3 +1,32 @@
+.route-content {
+    max-width: 72rem;
+    padding: 1.5rem;
+    margin: auto;
+    overflow-wrap: anywhere;
+}
+
+.route-return {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 1rem;
+    padding: 1.25rem max(1.5rem, calc((100vw - 72rem) / 2));
+    background: #fff;
+    border-bottom: 1px solid #dbe5f1;
+    font-size: .85rem;
+}
+
+.route-return a {
+    text-decoration: none;
+    font-weight: 600;
+}
+
+.route-return span {
+    color: #637d9f;
+    font-size: .75rem;
+}
+
 #blazor-error-ui {
     color-scheme: light only;
     background: lightyellow;

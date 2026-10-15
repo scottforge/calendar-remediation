@@ -1,33 +1,49 @@
-:root {
-    color-scheme: light;
-    font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    color: #192f39;
-    background: #f3f6f5;
-    line-height: 1.6;
-}
+@import url("css/tokens.css");
 
+:root { color-scheme: light; font-family: "Inter", "Segoe UI", -apple-system, BlinkMacSystemFont, sans-serif; color: #26364d; background: #f1f6fc; line-height: 1.55; font-synthesis: none; }
+.app-shell .page-heading { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin: 38px 0 27px; }
+.app-shell .eyebrow { font-size: 10px; font-weight: 700; letter-spacing: 1.6px; color: #5879a5; margin: 0 0 11px; }
+.app-shell h1 { color: #23364f; font-size: clamp(28px, 2.7vw, 41px); font-weight: 650; letter-spacing: -1.45px; line-height: 1.2; margin: 0 0 12px; }
+.app-shell h2 { margin: 0; font-size: 17px; font-weight: 650; letter-spacing: -.3px; color: #2b3d57; }
+.app-shell h3 { font-size: 15px; color: #314660; margin: 0 0 10px; font-weight: 650; }
+.app-shell .page-heading p:not(.eyebrow) { font-size: 13px; color: #657791; margin: 0; }
+.app-shell .primary, .app-shell .secondary { display: inline-flex; justify-content: center; align-items: center; gap: 15px; padding: 11px 17px; border-radius: 7px; border: 1px solid transparent; font-size: 12px; font-weight: 600; line-height: 1.5; }
+.app-shell .primary { color: white; background: var(--color-primary); border-color: var(--color-primary); box-shadow: 0 3px 7px #3069d51a; }
+.app-shell .primary:hover { background: #2159c6; border-color: #2159c6; }
+.app-shell .secondary { background: var(--color-white); border-color: #dbe4ef; color: #536b8d; }
+.app-shell .secondary:hover { background: #edf3ff; border-color: #a5bfe8; }
+.app-shell .text-button { background: none; border: 0; color: #3469bd; padding: 5px 0; font-size: 12px; font-weight: 600; }
+.app-shell .text-button:hover, .app-shell .text-link:hover { color: #163f88; text-decoration: underline; }
+.app-shell .panel { background: var(--color-white); border: 1px solid var(--color-panel-border); border-radius: var(--radius-panel); overflow: hidden; box-shadow: 0 3px 12px #233e6b03; }
+.app-shell .blue { background: #edf3ff; color: #4578da; }
+.app-shell .amber { background: #fff6e8; color: #946627; }
+.app-shell .green { background: #edf8f3; color: #387b60; }
+.app-shell .neutral { background: #eef1f5; color: #63728a; }
+.app-shell .status-badge { display: inline-flex; align-items: center; justify-content: center; gap: 6px; border-radius: 5px; padding: 5px 9px; font-size: 10px; font-weight: 550; width: fit-content; white-space: nowrap; }
 * { box-sizing: border-box; }
 body { margin: 0; }
-a { color: #155d59; }
-a:focus-visible, select:focus-visible { outline: 3px solid #176b66; outline-offset: 4px; }
-.site-header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 1rem; padding: 1.25rem max(1.5rem, calc((100vw - 64rem) / 2)); border-bottom: 1px solid #d5e0dc; background: #fff; }
-.brand { color: #192f39; font-weight: 700; text-decoration: none; }
-.status { border: 1px solid #cbd8d3; border-radius: 2rem; padding: .2rem .8rem; font-size: .85rem; }
-.workspace { max-width: 64rem; padding: 3rem 1.5rem; margin: auto; }
-.intro { max-width: 46rem; margin-bottom: 2rem; }
-.eyebrow { color: #155d59; font-size: .85rem; font-weight: 700; text-transform: uppercase; letter-spacing: .12em; }
-h1 { font-size: clamp(2rem, 5vw, 3.5rem); line-height: 1.15; letter-spacing: -.04em; margin: .75rem 0 1.25rem; }
-h2 { font-size: 1.25rem; margin: 0 0 .75rem; }
-.lead { font-size: 1.15rem; }
-.notice, .review-card { border: 1px solid #d5e0dc; border-radius: .8rem; padding: 1.5rem; margin: 1.5rem 0; }
-.notice { background: #e8f0ed; border-left: 4px solid #176b66; }
-.review-card { background: #fff; }
-label { display: block; font-weight: 600; margin: 1.5rem 0 .5rem; }
-select { width: 100%; max-width: 30rem; padding: .8rem; border: 1px solid #6e837d; border-radius: .4rem; background: #fff; color: inherit; font: inherit; }
-.intent-description { max-width: 45rem; }
-.muted, .site-footer { color: #50645d; font-size: .9rem; }
-.site-footer { text-align: center; padding: 1.5rem; }
-.skip-link { position: absolute; top: -5rem; left: 1rem; background: #fff; padding: .75rem; z-index: 10; }
-.skip-link:focus { top: 1rem; }
+button, input, select { font: inherit; }
+button, a, input, select { -webkit-tap-highlight-color: transparent; }
+button { cursor: pointer; color: inherit; }
+a { color: #235bc3; }
+button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, [tabindex]:focus-visible { outline: 3px solid #305ed0; outline-offset: 4px; }
+button, a, input { transition: background-color .15s ease, border-color .15s ease, box-shadow .15s ease; }
+.skip-link { position: fixed; top: 1rem; left: 1rem; background: #fff; padding: .75rem 1rem; z-index: 100; border: 2px solid #235bc3; border-radius: .5rem; clip-path: inset(50%); }
+.skip-link:focus-visible { clip-path: none; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
 .blazor-error-boundary { padding: 1rem; color: #fff; background: #8c2525; }
 .blazor-error-boundary::after { content: "An error has occurred."; }
+.route-content > section, .route-content > h1, .route-content > p, .route-content > article { max-width: 72rem; margin: 1.5rem auto; padding: 1.5rem; }
+.route-content > section { background: #fff; border: 1px solid #dbe5f1; border-radius: 1rem; }
+.route-content > section label { display: block; margin-top: 1rem; }
+@media (min-width: 1550px) { .app-shell .page-heading { margin-top: 45px; margin-bottom: 35px; } }
+@media (max-width: 950px) { .app-shell .page-heading { flex-wrap: wrap; gap: 20px; } }
+@media (max-width: 700px) {
+    .app-shell .page-heading { margin-top: 28px; }
+    .app-shell h1 { font-size: 31px; letter-spacing: -1px; }
+    .app-shell .page-heading p:not(.eyebrow) { font-size: 12px; }
+    .app-shell .eyebrow { font-size: 8px; letter-spacing: 1.3px; }
+    .app-shell h2 { font-size: 16px; }
+}
+.route-content > section select, .route-content > section input { padding: .7rem; max-width: 100%; }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; animation: none !important; } }

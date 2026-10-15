@@ -1,17 +1,19 @@
 ﻿@inherits LayoutComponentBase
+@inject NavigationManager Navigation
 
 <a class="skip-link" href="#main-content">Skip to content</a>
 
-<header class="site-header">
-    <a class="brand" href="/">Calendar Remediation</a>
-    <span class="status">Project skeleton</span>
-</header>
-
-<main id="main-content" class="workspace">
+@if (Navigation.ToBaseRelativePath(Navigation.Uri).Split('?', '#')[0].Length == 0)
+{
     @Body
-</main>
-
-<footer class="site-footer">Local workspace · No calendar connection</footer>
+}
+else
+{
+    <header class="route-return"><a href="/">← Calendar Remediation workspace</a><span>Local workspace · No calendar connection</span></header>
+    <main id="main-content" class="route-content" tabindex="-1">
+        @Body
+    </main>
+}
 
 <div id="blazor-error-ui" data-nosnippet>
     An unhandled error has occurred.
