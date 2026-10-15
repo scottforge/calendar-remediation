@@ -41,6 +41,7 @@ public sealed class GraphReadContractTests
         Assert.Contains("endDateTime=2030-01-31T00:00:00", query, StringComparison.Ordinal);
         Assert.DoesNotContain("subject", query, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("body", query, StringComparison.OrdinalIgnoreCase);
+        AssertDetailRequests(handler, "event");
     }
 
     [Fact]
@@ -72,7 +73,7 @@ public sealed class GraphReadContractTests
         Assert.Equal(2, result.Pages);
         Assert.Equal(2, result.DetailReads);
         Assert.Contains(next, handler.Addresses);
-        Assert.Equal(2, handler.Addresses.Count(a => a.Contains("/events/", StringComparison.Ordinal)));
+        AssertDetailRequests(handler, "event", "event-2");
     }
 
     [Theory]
@@ -121,7 +122,7 @@ public sealed class GraphReadContractTests
 
         Assert.Equal(!conflicting, result.Complete);
         Assert.Single(result.Events);
-        Assert.Single(handler.Addresses, a => a.Contains("/events/", StringComparison.Ordinal));
+        AssertDetailRequests(handler, "event");
         if (conflicting)
         {
             Assert.NotEmpty(result.Holds);
@@ -142,13 +143,21 @@ public sealed class GraphReadContractTests
         });
         handler.Add(Event());
         using var client = new HttpClient(handler);
-        var scope = ContractFixture.Scope with { Budget = ContractFixture.Scope.Budget with { Pages = 1, Details = 1 } };
+        var scope = ContractFixture.Scope with
+        {
+            Budget = budget == "pages"
+                ? ContractFixture.Scope.Budget with { Pages = 1 }
+                : ContractFixture.Scope.Budget with { Details = 1 }
+        };
         var result = await Reader(client).DiscoverAsync(scope);
 
         Assert.False(result.Complete);
-        Assert.NotEmpty(result.Holds);
+        Assert.Equal(budget == "pages" ? "page-budget" : "detail-budget", Assert.Single(result.Holds));
         Assert.Single(result.Events);
-        Assert.Single(handler.Addresses, a => a.Contains("/events/", StringComparison.Ordinal));
+        Assert.Equal(1, result.Pages);
+        Assert.Equal(1, result.DetailReads);
+        Assert.Single(handler.Addresses, a => new Uri(a).AbsolutePath == "/v1.0/me/calendarView");
+        AssertDetailRequests(handler, "event");
         Assert.Equal(6, handler.Methods.Count);
     }
 
@@ -178,7 +187,7 @@ public sealed class GraphReadContractTests
 
         Assert.False(result.Complete);
         Assert.NotEmpty(result.Holds);
-        Assert.Single(handler.Addresses, a => a.Contains("/events/", StringComparison.Ordinal));
+        AssertDetailRequests(handler, "event");
         Assert.DoesNotContain(result.Holds, h => h.Contains("do not persist", StringComparison.Ordinal));
     }
 
@@ -198,6 +207,14 @@ public sealed class GraphReadContractTests
         Assert.Null(source.Zones.OriginalStart);
         Assert.Equal("UTC", source.Zones.ResponseZone);
         Assert.NotEmpty(source.Unresolved);
+    }
+
+    private static void AssertDetailRequests(ScriptedGraphHandler handler, params string[] eventIds)
+    {
+        const string selectedFields = "id,changeKey,start,end,originalStartTimeZone,originalEndTimeZone,isOrganizer,organizer,attendees,isAllDay,isCancelled,type,seriesMasterId";
+        var detailRequests = handler.Addresses.Skip(4)
+            .Where(address => new Uri(address).AbsolutePath != "/v1.0/me/calendarView");
+        Assert.Equal(eventIds.Select(id => "https://graph.microsoft.com/v1.0/me/calendar/events/" + id + "?$select=" + selectedFields), detailRequests);
     }
 
     internal static GraphCalendarReader Reader(HttpClient client)

@@ -8,9 +8,16 @@ namespace CalendarRemediation.Tests.BackendContracts;
 
 public sealed class GraphWriteContractTests
 {
-    [Fact]
-    public async Task PatchContainsOnlyStartEndAndTheExactSuppliedProvenGuard()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PatchContainsOnlyExactUtcStartEndAndTheExactSuppliedProvenGuard(bool fractionalSeconds)
     {
+        var patch = ContractFixture.Patch with
+        {
+            Start = ContractFixture.Patch.Start.AddTicks(fractionalSeconds ? 1234567 : 0),
+            End = ContractFixture.Patch.End.AddTicks(fractionalSeconds ? 7654321 : 0)
+        };
         using var handler = new ScriptedGraphHandler();
         handler.Add(new { }, 204, request =>
         {
@@ -26,13 +33,18 @@ public sealed class GraphWriteContractTests
                 Assert.Equal<string>(["dateTime", "timeZone"], time.EnumerateObject().Select(p => p.Name).Order());
                 // Exact UTC payload avoids claiming that an admitted zone label proves deployed rules.
                 Assert.Equal("UTC", time.GetProperty("timeZone").GetString());
-                var expected = field == "start" ? ContractFixture.Patch.Start : ContractFixture.Patch.End;
-                Assert.Equal(expected.UtcDateTime, DateTime.Parse(time.GetProperty("dateTime").GetString()!,
-                    System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind));
+                var expected = (field, fractionalSeconds) switch
+                {
+                    ("start", true) => "2030-01-02T15:00:00.1234567Z",
+                    ("end", true) => "2030-01-02T16:00:00.7654321Z",
+                    ("start", false) => "2030-01-02T15:00:00.0000000Z",
+                    _ => "2030-01-02T16:00:00.0000000Z"
+                };
+                Assert.Equal(expected, time.GetProperty("dateTime").GetString());
             }
         });
         using var client = new HttpClient(handler);
-        var result = await Writer(client).WriteAsync(Write());
+        var result = await Writer(client).WriteAsync(Write() with { Patch = patch });
 
         Assert.Equal(MutationOutcome.Accepted, result.Outcome);
         Assert.Equal<string>(["PATCH"], handler.Methods);

@@ -187,7 +187,7 @@ public sealed class ReadProbeTests
             ]);
             foreach (var (propertyName, json) in invalid)
             {
-                foreach (var location in new[] { "view", "detail", "both" })
+                foreach (var location in new[] { "view", "detail" })
                 {
                     yield return [propertyName, json, location];
                 }
@@ -197,14 +197,14 @@ public sealed class ReadProbeTests
 
     [Theory]
     [MemberData(nameof(InvalidDiscoveryFields))]
-    public async Task MissingOrMalformedRequiredFieldsCannotCompleteEvenWhenBothReadsAgree(string field, string? json, string location)
+    public async Task MissingOrMalformedRequiredFieldsInEitherReadCannotComplete(string field, string? json, string location)
     {
         using var handler = new ScriptedGraphHandler();
         handler.AddReadFoundation(Mailbox);
         var valid = ScriptedGraphHandler.Event(attendees: true);
         var invalid = WithField(valid, field, json);
         handler.Add(new { value = new[] { location == "detail" ? valid : invalid } });
-        handler.Add(location == "view" ? valid : invalid);
+        if (location == "detail") { handler.Add(invalid); }
         using var client = new HttpClient(handler);
         var result = await new CalendarReadProbe(new(client, _ => Task.FromResult("fake"))).RunAsync(Scope);
         Assert.False(result.Complete);

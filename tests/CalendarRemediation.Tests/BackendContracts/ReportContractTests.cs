@@ -49,7 +49,7 @@ public sealed class ReportContractTests
     }
 
     [Fact]
-    public void OperationalFreeTextIsNotABackdoorForCredentialsOrUnselectedContent()
+    public void ExecutionReasonFreeTextIsExcludedFromReport()
     {
         var plan = ContractFixture.Plan;
         var result = new ExecutionResult("item-1", ExecutionOutcome.Unknown,
