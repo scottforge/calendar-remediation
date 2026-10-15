@@ -1,0 +1,101 @@
+name: Tooling and published shell
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+concurrency:
+  group: tooling-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  format:
+    name: Verify formatting
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Restore solution and smoke checker
+        run: |
+          dotnet restore CalendarRemediation.slnx
+          dotnet restore tools/SmokeCheck/SmokeCheck.csproj
+      - name: Verify formatting
+        run: |
+          dotnet format CalendarRemediation.slnx --verify-no-changes --no-restore
+          dotnet format tools/SmokeCheck/SmokeCheck.csproj --verify-no-changes --no-restore
+
+  build-test:
+    name: Build and tests (${{ matrix.rid }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            rid: linux-x64
+          - os: windows-latest
+            rid: win-x64
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Restore solution and smoke checker
+        run: |
+          dotnet restore CalendarRemediation.slnx
+          dotnet restore tools/SmokeCheck/SmokeCheck.csproj
+      - name: Build with analyzers
+        run: |
+          dotnet build CalendarRemediation.slnx -c Release --no-restore
+          dotnet build tools/SmokeCheck/SmokeCheck.csproj -c Release --no-restore
+      - name: Run current tests (not product coverage)
+        run: dotnet test CalendarRemediation.slnx -c Release --no-build --no-restore
+
+  package-smoke:
+    name: Publish and smoke check (${{ matrix.rid }})
+    needs: [format, build-test]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            rid: linux-x64
+          - os: windows-latest
+            rid: win-x64
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Publish self-contained application
+        run: dotnet publish src/CalendarRemediation.Host -c Release -r ${{ matrix.rid }} --self-contained true -o artifacts/publish/${{ matrix.rid }}
+      - name: Restore and build smoke checker
+        run: |
+          dotnet restore tools/SmokeCheck/SmokeCheck.csproj
+          dotnet build tools/SmokeCheck/SmokeCheck.csproj -c Release --no-restore
+      - name: Smoke check published shell and assets
+        run: dotnet run --project tools/SmokeCheck -c Release --no-build --no-restore -- artifacts/publish/${{ matrix.rid }}
+      - name: Upload complete publish directory
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@v4
+        with:
+          name: calendar-remediation-${{ matrix.rid }}
+          path: artifacts/publish/${{ matrix.rid }}/
+          include-hidden-files: true
+          if-no-files-found: error
