@@ -14,7 +14,6 @@ public sealed record ReadProbeResult(DateTimeOffset StartedAt, ReadProbeOptions 
 
 public sealed class CalendarReadProbe(GraphTransport transport)
 {
-    public const string EventFields = "id,changeKey,start,end,originalStartTimeZone,originalEndTimeZone,isOrganizer,organizer,attendees,isAllDay,isCancelled,type,seriesMasterId";
     private static readonly string[] DateTimeFormats = ["yyyy-MM-dd'T'HH:mm:ss", "yyyy-MM-dd'T'HH:mm:ss.FFFFFFF"];
 
     public async Task<ReadProbeResult> RunAsync(ReadProbeOptions options, CancellationToken cancellationToken = default)
@@ -54,12 +53,12 @@ public sealed class CalendarReadProbe(GraphTransport transport)
 
         try
         {
-            var me = await GetAsync(GraphTransport.Root + "me?$select=id,mail,userPrincipalName").ConfigureAwait(false);
+            var me = await GetAsync(GraphApi.IdentityUrl).ConfigureAwait(false);
             if (Text(me, "id") != options.MailboxId)
             {
                 throw new InvalidDataException("Mailbox identity did not match the configured object ID.");
             }
-            var calendar = await GetAsync(GraphTransport.Root + "me/calendar?$select=id,isDefaultCalendar,owner").ConfigureAwait(false);
+            var calendar = await GetAsync(GraphApi.DefaultCalendarUrl).ConfigureAwait(false);
             calendarId = Text(calendar, "id");
             var owner = calendar.GetProperty("owner").GetProperty("address").GetString();
             if (string.IsNullOrEmpty(calendarId) || !calendar.GetProperty("isDefaultCalendar").GetBoolean()
@@ -68,9 +67,9 @@ public sealed class CalendarReadProbe(GraphTransport transport)
             {
                 throw new InvalidDataException("Default calendar ownership could not be established.");
             }
-            foreach (var standard in new[] { "Windows", "Iana" })
+            foreach (var zoneUrl in new[] { GraphApi.WindowsTimeZonesUrl, GraphApi.IanaTimeZonesUrl })
             {
-                var zonePage = await GetAsync(GraphTransport.Root + $"me/outlook/supportedTimeZones(TimeZoneStandard=microsoft.graph.timeZoneStandard'{standard}')").ConfigureAwait(false);
+                var zonePage = await GetAsync(zoneUrl).ConfigureAwait(false);
                 if (zonePage.TryGetProperty("@odata.nextLink", out _))
                 {
                     throw new InvalidDataException("Unexpected supported-zone continuation requires adapter review.");
@@ -81,9 +80,7 @@ public sealed class CalendarReadProbe(GraphTransport transport)
                     throw new InvalidDataException("Supported-zone response was empty.");
                 }
             }
-            string? next = GraphTransport.Root + "me/calendarView?startDateTime="
-                + Uri.EscapeDataString(options.Start.ToString("O", CultureInfo.InvariantCulture)) + "&endDateTime="
-                + Uri.EscapeDataString(options.End.ToString("O", CultureInfo.InvariantCulture)) + "&$top=100&$select=" + EventFields;
+            string? next = GraphApi.CalendarView(options.Start, options.End);
             var visited = new HashSet<string>(StringComparer.Ordinal);
             while (next is not null)
             {
@@ -91,8 +88,7 @@ public sealed class CalendarReadProbe(GraphTransport transport)
                 {
                     throw new InvalidDataException("Page budget exhausted or continuation cycle observed.");
                 }
-                var uri = GraphTransport.ValidateUri(next);
-                if (uri.AbsolutePath != "/v1.0/me/calendarView")
+                if (!GraphApi.IsCalendarViewUri(next))
                 {
                     throw new InvalidDataException("Continuation escaped the calendar-view endpoint.");
                 }
@@ -123,7 +119,7 @@ public sealed class CalendarReadProbe(GraphTransport transport)
                         throw new InvalidDataException("Detail-read budget exhausted.");
                     }
                     details++;
-                    var detail = await GetAsync(GraphTransport.Root + "me/events/" + Uri.EscapeDataString(id) + "?$select=" + EventFields).ConfigureAwait(false);
+                    var detail = await GetAsync(GraphApi.ProbeEventDetail(id)).ConfigureAwait(false);
                     if (!HasValidSelectedFields(detail))
                     {
                         throw new InvalidDataException("Missing or malformed required discovery/classification fields in event detail.");
@@ -160,7 +156,7 @@ public sealed class CalendarReadProbe(GraphTransport transport)
         && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
 
     public static bool Equivalent(JsonElement first, JsonElement second) => HasValidSelectedFields(first)
-        && HasValidSelectedFields(second) && EventFields.Split(',').All(field =>
+        && HasValidSelectedFields(second) && GraphApi.EventFields.Split(',').All(field =>
         {
             var hasFirst = first.TryGetProperty(field, out var a);
             var hasSecond = second.TryGetProperty(field, out var b);

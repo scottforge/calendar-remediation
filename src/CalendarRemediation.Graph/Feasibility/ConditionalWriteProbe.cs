@@ -16,8 +16,6 @@ public sealed record ConditionalProbeResult(string Outcome, bool StaleRejected, 
 // Deliberately separate from calendar discovery and never registered in the web application.
 public sealed class ConditionalWriteProbe(GraphTransport transport)
 {
-    private const string Fields = CalendarReadProbe.EventFields + ",subject";
-
     public async Task<PreparedProbe> PrepareAsync(string tenantId, string mailboxId, string eventId, string marker,
         string experimentOwner, DateTimeOffset experimentStopDate,
         CancellationToken cancellationToken = default)
@@ -85,7 +83,7 @@ public sealed class ConditionalWriteProbe(GraphTransport transport)
         }
         var dispatchId = Guid.NewGuid();
         await persistIntent(new(prepared, before, patch, DateTimeOffset.UtcNow, dispatchId,
-            "PATCH", EventUrl(prepared.EventId), GraphTransport.Preferences)).ConfigureAwait(false);
+            "PATCH", GraphApi.EventPatch(prepared.EventId), GraphTransport.Preferences)).ConfigureAwait(false);
         if (prepared.ExpiresAt <= DateTimeOffset.UtcNow || prepared.ExperimentStopDate <= DateTimeOffset.UtcNow)
         {
             throw new InvalidOperationException("Experiment expired before dispatch. The durable attempt remains consumed.");
@@ -94,7 +92,7 @@ public sealed class ConditionalWriteProbe(GraphTransport transport)
         var accepted = false;
         try
         {
-            var response = await transport.SendAsync(HttpMethod.Patch, EventUrl(prepared.EventId), patch,
+            var response = await transport.SendAsync(HttpMethod.Patch, GraphApi.EventPatch(prepared.EventId), patch,
                 prepared.SourceETag, dispatchId, cancellationToken).ConfigureAwait(false);
             exchanges.Add(response.Exchange);
             accepted = response.Status is >= 200 and < 300;
@@ -133,11 +131,9 @@ public sealed class ConditionalWriteProbe(GraphTransport transport)
         return time;
     }
 
-    private static string EventUrl(string id) => GraphTransport.Root + "me/events/" + Uri.EscapeDataString(id);
-
     private async Task<GraphResponse> ReadAsync(string id, CancellationToken ct)
     {
-        var response = await transport.SendAsync(HttpMethod.Get, EventUrl(id) + "?$select=" + Fields, cancellationToken: ct).ConfigureAwait(false);
+        var response = await transport.SendAsync(HttpMethod.Get, GraphApi.ConditionalProbeEventDetail(id), cancellationToken: ct).ConfigureAwait(false);
         if (response.Status != 200 || response.Body is null)
         {
             throw new InvalidDataException($"Disposable event read failed with HTTP {response.Status}.");

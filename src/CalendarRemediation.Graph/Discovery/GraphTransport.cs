@@ -13,23 +13,13 @@ public sealed record GraphResponse(int Status, JsonElement? Body, GraphExchange 
 // Production composition uses CreateHandler. Every call performs exactly one SendAsync.
 public sealed class GraphTransport(HttpClient client, Func<CancellationToken, Task<string>> acquireToken)
 {
-    public const string Root = "https://graph.microsoft.com/v1.0/";
+    public const string Root = GraphApi.Root;
     public const string Preferences = "IdType=\"ImmutableId\", outlook.timezone=\"UTC\"";
     private const int MaxResponseBytes = 4 * 1024 * 1024;
 
     public static HttpClientHandler CreateHandler() => new() { AllowAutoRedirect = false, UseCookies = false };
 
-    public static Uri ValidateUri(string address)
-    {
-        var uri = new Uri(address, UriKind.Absolute);
-        if (uri.Scheme != Uri.UriSchemeHttps || uri.Host != "graph.microsoft.com" || !uri.IsDefaultPort
-            || uri.UserInfo.Length != 0 || uri.Fragment.Length != 0 || !uri.AbsolutePath.StartsWith("/v1.0/me", StringComparison.Ordinal)
-            || (uri.AbsolutePath.Length > 8 && uri.AbsolutePath[8] != '/'))
-        {
-            throw new InvalidOperationException("Graph destination is outside the configured cloud and user path.");
-        }
-        return uri;
-    }
+    public static Uri ValidateUri(string address) => GraphApi.ValidateUri(address);
 
     public async Task<GraphResponse> SendAsync(HttpMethod method, string address, string? json = null,
         string? ifMatch = null, Guid? clientRequestId = null, CancellationToken cancellationToken = default)

@@ -25,7 +25,7 @@ public sealed class GraphCalendarWriter(GraphTransport transport) : ICalendarWri
         });
         try
         {
-            var response = await transport.SendAsync(HttpMethod.Patch, GraphTransport.Root + "me/events/" + Uri.EscapeDataString(write.Source.Id),
+            var response = await transport.SendAsync(HttpMethod.Patch, GraphApi.EventPatch(write.Source.Id),
                 json, write.Source.Guard, write.AttemptId, cancellationToken).ConfigureAwait(false);
             var outcome = response.Status switch
             {

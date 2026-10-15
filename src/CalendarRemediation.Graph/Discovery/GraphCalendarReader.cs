@@ -37,9 +37,9 @@ public sealed class GraphCalendarReader(GraphTransport transport) : ICalendarRea
             if (identityHold is not null) { holds.Add(identityHold); }
             else
             {
-                foreach (var standard in new[] { "Windows", "Iana" })
+                foreach (var zoneUrl in new[] { GraphApi.WindowsTimeZonesUrl, GraphApi.IanaTimeZonesUrl })
                 {
-                    var zonePage = await GetAsync(GraphTransport.Root + $"me/outlook/supportedTimeZones(TimeZoneStandard=microsoft.graph.timeZoneStandard'{standard}')", ct).ConfigureAwait(false);
+                    var zonePage = await GetAsync(zoneUrl, ct).ConfigureAwait(false);
                     if (!TryArray(zonePage, "value", out var values) || values.GetArrayLength() == 0 || zonePage.TryGetProperty("@odata.nextLink", out _))
                     {
                         throw new InvalidDataException();
@@ -51,15 +51,13 @@ public sealed class GraphCalendarReader(GraphTransport transport) : ICalendarRea
                         zones.Add(alias);
                     }
                 }
-                string? next = GraphTransport.Root + "me/calendarView?startDateTime="
-                    + Uri.EscapeDataString(scope.Start.ToString("O", CultureInfo.InvariantCulture)) + "&endDateTime="
-                    + Uri.EscapeDataString(scope.End.ToString("O", CultureInfo.InvariantCulture)) + "&$top=100&$select=" + CalendarReadProbe.EventFields;
+                string? next = GraphApi.CalendarView(scope.Start, scope.End);
                 var exhausted = false;
                 while (next is not null && !exhausted)
                 {
                     if (pages >= scope.Budget.Pages) { holds.Add("page-budget"); break; }
                     if (!visited.Add(next)) { holds.Add("paging-cycle"); break; }
-                    if (GraphTransport.ValidateUri(next).AbsolutePath != "/v1.0/me/calendarView")
+                    if (!GraphApi.IsCalendarViewUri(next))
                     {
                         holds.Add("invalid-next-link");
                         break;
@@ -130,8 +128,7 @@ public sealed class GraphCalendarReader(GraphTransport transport) : ICalendarRea
 
     private async Task<SourceSnapshot?> ReadEventAsync(CalendarIdentity identity, string eventId, CancellationToken ct)
     {
-        var response = await transport.SendAsync(HttpMethod.Get, GraphTransport.Root + "me/calendar/events/" + Uri.EscapeDataString(eventId)
-            + "?$select=" + CalendarReadProbe.EventFields, cancellationToken: ct).ConfigureAwait(false);
+        var response = await transport.SendAsync(HttpMethod.Get, GraphApi.CalendarEventDetail(eventId), cancellationToken: ct).ConfigureAwait(false);
         if (response.Status != 200 || response.Body is null) { return null; }
         var mapped = Map(identity, response.Body.Value);
         return mapped?.Id == eventId ? mapped : null;
@@ -141,9 +138,9 @@ public sealed class GraphCalendarReader(GraphTransport transport) : ICalendarRea
     {
         // Token tenant validation belongs to the token-acquisition composition. Graph /me
         // independently establishes the mailbox and default-calendar ownership here.
-        var me = await GetAsync(GraphTransport.Root + "me?$select=id,mail,userPrincipalName", ct).ConfigureAwait(false);
+        var me = await GetAsync(GraphApi.IdentityUrl, ct).ConfigureAwait(false);
         if (Text(me, "id") != identity.MailboxId) { return "identity-mismatch"; }
-        var calendar = await GetAsync(GraphTransport.Root + "me/calendar?$select=id,isDefaultCalendar,owner", ct).ConfigureAwait(false);
+        var calendar = await GetAsync(GraphApi.DefaultCalendarUrl, ct).ConfigureAwait(false);
         var owner = calendar.TryGetProperty("owner", out var ownerValue) ? Text(ownerValue, "address") : null;
         if (Text(calendar, "id") != identity.CalendarId || Boolean(calendar, "isDefaultCalendar") != true || string.IsNullOrWhiteSpace(owner)
             || !(string.Equals(owner, Text(me, "mail"), StringComparison.OrdinalIgnoreCase)
