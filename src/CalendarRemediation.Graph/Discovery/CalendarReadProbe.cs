@@ -54,16 +54,16 @@ public sealed class CalendarReadProbe(GraphTransport transport)
         try
         {
             var me = await GetAsync(GraphApi.IdentityUrl).ConfigureAwait(false);
-            if (Text(me, "id") != options.MailboxId)
+            if (GraphJson.Text(me, "id") != options.MailboxId)
             {
                 throw new InvalidDataException("Mailbox identity did not match the configured object ID.");
             }
             var calendar = await GetAsync(GraphApi.DefaultCalendarUrl).ConfigureAwait(false);
-            calendarId = Text(calendar, "id");
+            calendarId = GraphJson.Text(calendar, "id");
             var owner = calendar.GetProperty("owner").GetProperty("address").GetString();
             if (string.IsNullOrEmpty(calendarId) || !calendar.GetProperty("isDefaultCalendar").GetBoolean()
-                || string.IsNullOrEmpty(owner) || !(string.Equals(owner, Text(me, "mail"), StringComparison.OrdinalIgnoreCase)
-                    || string.Equals(owner, Text(me, "userPrincipalName"), StringComparison.OrdinalIgnoreCase)))
+                || string.IsNullOrEmpty(owner) || !(string.Equals(owner, GraphJson.Text(me, "mail"), StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(owner, GraphJson.Text(me, "userPrincipalName"), StringComparison.OrdinalIgnoreCase)))
             {
                 throw new InvalidDataException("Default calendar ownership could not be established.");
             }
@@ -104,7 +104,7 @@ public sealed class CalendarReadProbe(GraphTransport transport)
                     {
                         throw new InvalidDataException("Missing or malformed required discovery/classification fields in calendar-view observation.");
                     }
-                    var id = Text(item, "id")!;
+                    var id = GraphJson.Text(item, "id")!;
                     if (views.TryGetValue(id, out var previous))
                     {
                         if (!Equivalent(previous, item))
@@ -146,14 +146,10 @@ public sealed class CalendarReadProbe(GraphTransport transport)
             holds.Add(ex is InvalidDataException ? ex.Message : $"Read failed ({ex.GetType().Name}). Scope is incomplete.");
         }
         var organizerMeetings = events.Values.Count(e => e.GetProperty("isOrganizer").GetBoolean()
-            && Text(e, "type") == "singleInstance" && e.GetProperty("attendees").GetArrayLength() > 0);
+            && GraphJson.Text(e, "type") == "singleInstance" && e.GetProperty("attendees").GetArrayLength() > 0);
         return new(started, options, holds.Count == 0, holds.ToArray(), calendarId, pages, details, observations,
             organizerMeetings, timer.Elapsed.TotalSeconds, events.Values.ToArray(), zones.ToArray(), exchanges.ToArray());
     }
-
-    public static string? Text(JsonElement element, string property) => element.ValueKind == JsonValueKind.Object
-        && element.TryGetProperty(property, out var value)
-        && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
 
     public static bool Equivalent(JsonElement first, JsonElement second) => HasValidSelectedFields(first)
         && HasValidSelectedFields(second) && GraphApi.EventFields.Split(',').All(field =>
@@ -167,23 +163,23 @@ public sealed class CalendarReadProbe(GraphTransport transport)
     private static bool HasValidSelectedFields(JsonElement item)
     {
         if (item.ValueKind != JsonValueKind.Object
-            || string.IsNullOrWhiteSpace(Text(item, "id")) || string.IsNullOrWhiteSpace(Text(item, "changeKey"))
-            || string.IsNullOrWhiteSpace(Text(item, "originalStartTimeZone")) || string.IsNullOrWhiteSpace(Text(item, "originalEndTimeZone"))
+            || string.IsNullOrWhiteSpace(GraphJson.Text(item, "id")) || string.IsNullOrWhiteSpace(GraphJson.Text(item, "changeKey"))
+            || string.IsNullOrWhiteSpace(GraphJson.Text(item, "originalStartTimeZone")) || string.IsNullOrWhiteSpace(GraphJson.Text(item, "originalEndTimeZone"))
             || !HasDateTimeZone(item, "start") || !HasDateTimeZone(item, "end")
             || !HasBoolean(item, "isOrganizer") || !HasBoolean(item, "isAllDay") || !HasBoolean(item, "isCancelled")
             || !item.TryGetProperty("organizer", out var organizer) || !HasEmailAddress(organizer)
             || !item.TryGetProperty("attendees", out var attendees) || attendees.ValueKind != JsonValueKind.Array
-            || attendees.EnumerateArray().Any(a => !HasEmailAddress(a) || Text(a, "type") is not ("required" or "optional" or "resource")))
+            || attendees.EnumerateArray().Any(a => !HasEmailAddress(a) || GraphJson.Text(a, "type") is not ("required" or "optional" or "resource")))
         {
             return false;
         }
-        var type = Text(item, "type");
+        var type = GraphJson.Text(item, "type");
         if (type is not ("singleInstance" or "occurrence" or "exception" or "seriesMaster"))
         {
             return false;
         }
         // The master ID is not applicable to single instances or masters themselves.
-        return type is "occurrence" or "exception" ? !string.IsNullOrWhiteSpace(Text(item, "seriesMasterId"))
+        return type is "occurrence" or "exception" ? !string.IsNullOrWhiteSpace(GraphJson.Text(item, "seriesMasterId"))
             : !item.TryGetProperty("seriesMasterId", out var master) || master.ValueKind == JsonValueKind.Null;
     }
 
@@ -191,9 +187,9 @@ public sealed class CalendarReadProbe(GraphTransport transport)
         && value.ValueKind is JsonValueKind.True or JsonValueKind.False;
 
     private static bool HasDateTimeZone(JsonElement item, string field) => item.TryGetProperty(field, out var value)
-        && !string.IsNullOrWhiteSpace(Text(value, "timeZone"))
-        && DateTime.TryParseExact(Text(value, "dateTime"), DateTimeFormats, CultureInfo.InvariantCulture, DateTimeStyles.None, out _);
+        && !string.IsNullOrWhiteSpace(GraphJson.Text(value, "timeZone"))
+        && DateTime.TryParseExact(GraphJson.Text(value, "dateTime"), DateTimeFormats, CultureInfo.InvariantCulture, DateTimeStyles.None, out _);
 
     private static bool HasEmailAddress(JsonElement item) => item.ValueKind == JsonValueKind.Object
-        && item.TryGetProperty("emailAddress", out var email) && !string.IsNullOrWhiteSpace(Text(email, "address"));
+        && item.TryGetProperty("emailAddress", out var email) && !string.IsNullOrWhiteSpace(GraphJson.Text(email, "address"));
 }

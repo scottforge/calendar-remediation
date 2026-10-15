@@ -40,13 +40,13 @@ public sealed class GraphCalendarReader(GraphTransport transport) : ICalendarRea
                 foreach (var zoneUrl in new[] { GraphApi.WindowsTimeZonesUrl, GraphApi.IanaTimeZonesUrl })
                 {
                     var zonePage = await GetAsync(zoneUrl, ct).ConfigureAwait(false);
-                    if (!TryArray(zonePage, "value", out var values) || values.GetArrayLength() == 0 || zonePage.TryGetProperty("@odata.nextLink", out _))
+                    if (!GraphJson.TryArray(zonePage, "value", out var values) || values.GetArrayLength() == 0 || zonePage.TryGetProperty("@odata.nextLink", out _))
                     {
                         throw new InvalidDataException();
                     }
                     foreach (var zone in values.EnumerateArray())
                     {
-                        var alias = Text(zone, "alias");
+                        var alias = GraphJson.Text(zone, "alias");
                         if (string.IsNullOrWhiteSpace(alias)) { throw new InvalidDataException(); }
                         zones.Add(alias);
                     }
@@ -64,7 +64,7 @@ public sealed class GraphCalendarReader(GraphTransport transport) : ICalendarRea
                     }
                     var page = await GetAsync(next, ct).ConfigureAwait(false);
                     pages++;
-                    if (!TryArray(page, "value", out var values)) { throw new InvalidDataException(); }
+                    if (!GraphJson.TryArray(page, "value", out var values)) { throw new InvalidDataException(); }
                     foreach (var observation in values.EnumerateArray())
                     {
                         if (++observations > scope.Budget.Events) { holds.Add("event-budget"); exhausted = true; break; }
@@ -139,12 +139,12 @@ public sealed class GraphCalendarReader(GraphTransport transport) : ICalendarRea
         // Token tenant validation belongs to the token-acquisition composition. Graph /me
         // independently establishes the mailbox and default-calendar ownership here.
         var me = await GetAsync(GraphApi.IdentityUrl, ct).ConfigureAwait(false);
-        if (Text(me, "id") != identity.MailboxId) { return "identity-mismatch"; }
+        if (GraphJson.Text(me, "id") != identity.MailboxId) { return "identity-mismatch"; }
         var calendar = await GetAsync(GraphApi.DefaultCalendarUrl, ct).ConfigureAwait(false);
-        var owner = calendar.TryGetProperty("owner", out var ownerValue) ? Text(ownerValue, "address") : null;
-        if (Text(calendar, "id") != identity.CalendarId || Boolean(calendar, "isDefaultCalendar") != true || string.IsNullOrWhiteSpace(owner)
-            || !(string.Equals(owner, Text(me, "mail"), StringComparison.OrdinalIgnoreCase)
-                || string.Equals(owner, Text(me, "userPrincipalName"), StringComparison.OrdinalIgnoreCase)))
+        var owner = calendar.TryGetProperty("owner", out var ownerValue) ? GraphJson.Text(ownerValue, "address") : null;
+        if (GraphJson.Text(calendar, "id") != identity.CalendarId || GraphJson.Boolean(calendar, "isDefaultCalendar") != true || string.IsNullOrWhiteSpace(owner)
+            || !(string.Equals(owner, GraphJson.Text(me, "mail"), StringComparison.OrdinalIgnoreCase)
+                || string.Equals(owner, GraphJson.Text(me, "userPrincipalName"), StringComparison.OrdinalIgnoreCase)))
         {
             return "calendar-mismatch";
         }

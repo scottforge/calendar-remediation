@@ -32,7 +32,7 @@ public sealed class ConditionalWriteProbe(GraphTransport transport)
         var response = await ReadAsync(eventId, cancellationToken).ConfigureAwait(false);
         var source = response.Body!.Value;
         CheckDisposable(source, eventId, marker);
-        var etag = CalendarReadProbe.Text(source, "@odata.etag");
+        var etag = GraphJson.Text(source, "@odata.etag");
         if (!EntityTagHeaderValue.TryParse(etag, out var tag) || tag.Tag == "*")
         {
             throw new InvalidDataException("No source ETag. A change key is not substituted for a guard.");
@@ -57,7 +57,7 @@ public sealed class ConditionalWriteProbe(GraphTransport transport)
             throw new InvalidOperationException("Probe expired or proposed future interval is invalid.");
         }
         CheckDisposable(prepared.Source, prepared.EventId, prepared.Marker);
-        if (prepared.SourceETag != CalendarReadProbe.Text(prepared.Source, "@odata.etag")
+        if (prepared.SourceETag != GraphJson.Text(prepared.Source, "@odata.etag")
             || !EntityTagHeaderValue.TryParse(prepared.SourceETag, out var tag) || tag.Tag == "*")
         {
             throw new InvalidDataException("Prepared guard does not match source observation.");
@@ -65,8 +65,8 @@ public sealed class ConditionalWriteProbe(GraphTransport transport)
         var beforeResponse = await ReadAsync(prepared.EventId, cancellationToken).ConfigureAwait(false);
         var before = beforeResponse.Body!.Value;
         CheckDisposable(before, prepared.EventId, prepared.Marker);
-        if (CalendarReadProbe.Text(before, "@odata.etag") is not { Length: > 0 } currentTag
-            || currentTag == prepared.SourceETag || CalendarReadProbe.Text(before, "changeKey") == CalendarReadProbe.Text(prepared.Source, "changeKey")
+        if (GraphJson.Text(before, "@odata.etag") is not { Length: > 0 } currentTag
+            || currentTag == prepared.SourceETag || GraphJson.Text(before, "changeKey") == GraphJson.Text(prepared.Source, "changeKey")
             || SameTime(before, prepared.Source))
         {
             throw new InvalidOperationException("Introduce a competing start/end edit in Outlook before the stale-write test.");
@@ -100,7 +100,7 @@ public sealed class ConditionalWriteProbe(GraphTransport transport)
             exchanges.Add(afterResponse.Exchange);
             var after = afterResponse.Body!.Value;
             var preserved = CalendarReadProbe.Equivalent(before, after)
-                && CalendarReadProbe.Text(before, "subject") == CalendarReadProbe.Text(after, "subject");
+                && GraphJson.Text(before, "subject") == GraphJson.Text(after, "subject");
             var rejected = response.Status == 412;
             return new(rejected && preserved ? "Observed stale rejection on this disposable appointment only"
                 : accepted ? "FAILED: stale guard was accepted"
@@ -122,8 +122,8 @@ public sealed class ConditionalWriteProbe(GraphTransport transport)
     private static DateTimeOffset Time(JsonElement item, string field)
     {
         var value = item.GetProperty(field);
-        if (CalendarReadProbe.Text(value, "timeZone") != "UTC"
-            || !DateTimeOffset.TryParse(CalendarReadProbe.Text(value, "dateTime"), CultureInfo.InvariantCulture,
+        if (GraphJson.Text(value, "timeZone") != "UTC"
+            || !DateTimeOffset.TryParse(GraphJson.Text(value, "dateTime"), CultureInfo.InvariantCulture,
                 DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var time))
         {
             throw new InvalidDataException("Disposable probe requires valid UTC scheduling observations.");
@@ -143,12 +143,12 @@ public sealed class ConditionalWriteProbe(GraphTransport transport)
 
     private static void CheckDisposable(JsonElement item, string id, string marker)
     {
-        if (!Guid.TryParse(marker, out _) || CalendarReadProbe.Text(item, "id") != id
-            || CalendarReadProbe.Text(item, "subject") != "PHASE0-DISPOSABLE:" + marker
+        if (!Guid.TryParse(marker, out _) || GraphJson.Text(item, "id") != id
+            || GraphJson.Text(item, "subject") != "PHASE0-DISPOSABLE:" + marker
             || !item.GetProperty("isOrganizer").GetBoolean() || item.GetProperty("isAllDay").GetBoolean()
             || item.GetProperty("isCancelled").GetBoolean() || item.GetProperty("attendees").GetArrayLength() != 0
-            || CalendarReadProbe.Text(item, "type") != "singleInstance"
-            || string.IsNullOrWhiteSpace(CalendarReadProbe.Text(item, "changeKey"))
+            || GraphJson.Text(item, "type") != "singleInstance"
+            || string.IsNullOrWhiteSpace(GraphJson.Text(item, "changeKey"))
             || Time(item, "start") <= DateTimeOffset.UtcNow || Time(item, "end") <= Time(item, "start"))
         {
             throw new InvalidOperationException("Only a marked, organizer-owned attendee-free timed single-instance disposable appointment is allowed.");
