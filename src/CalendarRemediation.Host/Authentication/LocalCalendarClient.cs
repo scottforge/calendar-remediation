@@ -1,5 +1,6 @@
 using System.Text.Json;
 using CalendarRemediation.Core.Discovery;
+using CalendarRemediation.Graph;
 using CalendarRemediation.Graph.Discovery;
 
 namespace CalendarRemediation.Host.Authentication;
@@ -12,13 +13,13 @@ public sealed class LocalCalendarClient : ILocalCalendarClient, IDisposable
         CancellationToken cancellationToken)
     {
         var transport = new GraphTransport(_client, token);
-        var me = await GetAsync(transport, "me?$select=id,mail,userPrincipalName,displayName", cancellationToken);
+        var me = await GetAsync(transport, GraphApi.MailboxUrl, cancellationToken);
         var mailboxId = Text(me, "id");
         if (!string.Equals(mailboxId, account.MailboxObjectId, StringComparison.OrdinalIgnoreCase))
         {
             throw new ConnectionException(new("identity-mismatch", "The Microsoft 365 mailbox did not match the signed-in account."));
         }
-        var calendar = await GetAsync(transport, "me/calendar?$select=id,isDefaultCalendar,owner", cancellationToken);
+        var calendar = await GetAsync(transport, GraphApi.DefaultCalendarUrl, cancellationToken);
         var calendarId = Text(calendar, "id");
         var owner = calendar.TryGetProperty("owner", out var value) ? Text(value, "address") : null;
         var mail = Text(me, "mail");
@@ -35,9 +36,9 @@ public sealed class LocalCalendarClient : ILocalCalendarClient, IDisposable
     public Task<DiscoveryResult> DiscoverAsync(DiscoveryScope scope, Func<CancellationToken, Task<string>> token,
         CancellationToken cancellationToken) => new GraphCalendarReader(new(_client, token)).DiscoverAsync(scope, cancellationToken);
 
-    private static async Task<JsonElement> GetAsync(GraphTransport transport, string path, CancellationToken cancellationToken)
+    private static async Task<JsonElement> GetAsync(GraphTransport transport, string address, CancellationToken cancellationToken)
     {
-        var response = await transport.SendAsync(HttpMethod.Get, GraphTransport.Root + path, cancellationToken: cancellationToken);
+        var response = await transport.SendAsync(HttpMethod.Get, address, cancellationToken: cancellationToken);
         if (response.Status != 200 || response.Body is null || response.Body.Value.ValueKind != JsonValueKind.Object)
         {
             throw new ConnectionException(new("graph-unavailable", "Microsoft 365 identity verification was unavailable. Try signing in again."));
