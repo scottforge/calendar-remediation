@@ -1,4 +1,5 @@
 using System.Text.Json;
+using CalendarRemediation.Graph;
 using CalendarRemediation.Graph.Discovery;
 
 namespace CalendarRemediation.Tests.AdapterContracts;
@@ -16,7 +17,7 @@ public sealed class ReadProbeTests
         handler.AddReadFoundation(Mailbox);
         var first = ScriptedGraphHandler.Event(attendees: true);
         var second = ScriptedGraphHandler.Event("event2");
-        var continuation = GraphTransport.Root + "me/calendarView?$skiptoken=opaque%2Bvalue&$select=" + CalendarReadProbe.EventFields;
+        var continuation = GraphTransport.Root + "me/calendarView?$skiptoken=opaque%2Bvalue&$select=" + GraphApi.EventFields;
         handler.Add(new Dictionary<string, object> { ["value"] = new[] { first }, ["@odata.nextLink"] = continuation }, inspect: r =>
         {
             Assert.Contains("startDateTime=2030-01-01T09%3A30%3A00", r.RequestUri!.AbsoluteUri, StringComparison.Ordinal);
