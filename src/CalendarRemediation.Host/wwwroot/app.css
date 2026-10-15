@@ -10,6 +10,10 @@
 .app-shell .primary, .app-shell .secondary { display: inline-flex; justify-content: center; align-items: center; gap: 15px; padding: 11px 17px; border-radius: 7px; border: 1px solid transparent; font-size: 12px; font-weight: 600; line-height: 1.5; }
 .app-shell .primary { color: white; background: var(--color-primary); border-color: var(--color-primary); box-shadow: 0 3px 7px #3069d51a; }
 .app-shell .primary:hover { background: #2159c6; border-color: #2159c6; }
+.app-shell button:disabled { cursor: not-allowed; background: #edf0f5; border-color: #d7dfe9; color: #65738a; box-shadow: none; }
+.app-shell button { min-height: 44px; }
+.app-shell input[type="checkbox"] { accent-color: var(--color-primary); }
+.app-shell p, .app-shell h1, .app-shell h2, .app-shell h3 { overflow-wrap: anywhere; }
 .app-shell .secondary { background: var(--color-white); border-color: #dbe4ef; color: #536b8d; }
 .app-shell .secondary:hover { background: #edf3ff; border-color: #a5bfe8; }
 .app-shell .text-button { background: none; border: 0; color: #3469bd; padding: 5px 0; font-size: 12px; font-weight: 600; }
