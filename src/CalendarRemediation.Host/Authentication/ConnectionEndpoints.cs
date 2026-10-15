@@ -1,0 +1,191 @@
+using System.Net;
+using System.Security.Claims;
+using System.Text.Json.Serialization;
+using Microsoft.AspNetCore.Antiforgery;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.Extensions.Options;
+
+namespace CalendarRemediation.Host.Authentication;
+
+public static class ConnectionEndpoints
+{
+    public const string Scheme = "LocalConnection";
+
+    public static IServiceCollection AddLocalConnection(this IServiceCollection services, IConfiguration configuration)
+    {
+        services.Configure<LocalConnectionOptions>(configuration.GetSection("LocalConnection"));
+        services.AddSingleton<ILocalIdentityClient, LocalIdentityClient>();
+        services.AddSingleton<ILocalCalendarClient, LocalCalendarClient>();
+        services.AddSingleton<LocalConnectionService>();
+        services.AddAuthentication(Scheme).AddCookie(Scheme, options =>
+        {
+            options.Cookie.Name = "CalendarRemediation.Connection";
+            options.Cookie.HttpOnly = true;
+            options.Cookie.SameSite = SameSiteMode.Strict;
+            // The local app is deliberately HTTP loopback only.
+            options.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
+            options.ExpireTimeSpan = TimeSpan.FromHours(8);
+            options.SlidingExpiration = false;
+            options.Events = new CookieAuthenticationEvents
+            {
+                OnValidatePrincipal = context =>
+                {
+                    if (context.Principal is null || !context.HttpContext.RequestServices.GetRequiredService<LocalConnectionService>().IsCurrent(context.Principal))
+                    {
+                        context.RejectPrincipal();
+                    }
+                    return Task.CompletedTask;
+                },
+                OnRedirectToLogin = context => { context.Response.StatusCode = 401; return Task.CompletedTask; },
+                OnRedirectToAccessDenied = context => { context.Response.StatusCode = 403; return Task.CompletedTask; }
+            };
+        });
+        services.AddAuthorization();
+        services.AddCascadingAuthenticationState();
+        services.ConfigureHttpJsonOptions(options => options.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
+        return services;
+    }
+
+    public static IApplicationBuilder UseLocalConnectionGuard(this IApplicationBuilder app) => app.Use(async (context, next) =>
+    {
+        var request = context.Request;
+        var remote = context.Connection.RemoteIpAddress;
+        var host = request.Host.Host;
+        var options = context.RequestServices.GetRequiredService<IOptions<LocalConnectionOptions>>().Value;
+        if (remote is null || !IPAddress.IsLoopback(remote) || request.Scheme != "http" || request.Host.Port != options.Port
+            || !(host.Equals("localhost", StringComparison.OrdinalIgnoreCase) || host is "127.0.0.1" or "[::1]" or "::1")
+            || (request.Headers.Origin.Count > 0 && !SameOrigin(request.Headers.Origin.ToString(), request))
+            || request.Headers["Sec-Fetch-Site"] == "cross-site")
+        {
+            context.Response.StatusCode = StatusCodes.Status403Forbidden;
+            return;
+        }
+        if (request.Path.StartsWithSegments("/connection"))
+        {
+            context.Response.Headers.CacheControl = "no-store";
+            context.Response.Headers.Pragma = "no-cache";
+            context.Response.Headers["X-Content-Type-Options"] = "nosniff";
+            context.Response.Headers["Referrer-Policy"] = "no-referrer";
+        }
+        await next(context);
+    });
+
+    public static IEndpointRouteBuilder MapLocalConnection(this IEndpointRouteBuilder app)
+    {
+        app.MapGet("/connection/antiforgery", (HttpContext context, IAntiforgery antiforgery) =>
+        {
+            var tokens = antiforgery.GetAndStoreTokens(context);
+            return Results.Ok(new { tokens.RequestToken, tokens.FormFieldName, tokens.HeaderName });
+        });
+        app.MapGet("/connection/state", async (HttpContext context, LocalConnectionService connection) =>
+        {
+            try { return Results.Ok(await connection.GetStateAsync(context.User, context.RequestAborted)); }
+            catch (ConnectionException ex) { return Results.Json(ex.Problem, statusCode: 409); }
+        });
+        MapAction(app, "bootstrap", async (context, connection, _) =>
+        {
+            await IssueCookieAsync(context, connection.Bootstrap(context.User));
+        });
+        MapAction(app, "start", async (context, connection, form) =>
+        {
+            var mode = form["mode"].ToString();
+            if (mode is not ("interactive" or "continue"))
+            {
+                throw new ConnectionException(new("invalid-mode", "Choose browser sign-in or continue with the cached account."));
+            }
+            await IssueCookieAsync(context, connection.StartSignIn(context.User, form["version"].ToString(), mode == "interactive"));
+        });
+        MapAction(app, "complete", async (context, connection, form) =>
+        {
+            await IssueCookieAsync(context, connection.Complete(context.User, form["version"].ToString()));
+        });
+        MapAction(app, "cancel", (context, connection, form) =>
+        {
+            connection.Cancel(context.User, form["version"].ToString());
+            return Task.CompletedTask;
+        });
+        MapAction(app, "location", (context, connection, form) =>
+        {
+            connection.ConfirmLocation(context.User, form["version"].ToString(),
+                new(form["province"].ToString(), form["community"].ToString(), form["timeZoneId"].ToString()));
+            return Task.CompletedTask;
+        });
+        MapAction(app, "discover", (context, connection, form) =>
+        {
+            connection.StartDiscovery(context.User, form["version"].ToString());
+            return Task.CompletedTask;
+        });
+        MapAction(app, "signout", async (context, connection, form) =>
+        {
+            try
+            {
+                // Once accepted, clearing the local cache must survive a disconnected browser.
+                await connection.SignOutAsync(context.User, form["version"].ToString());
+            }
+            catch (ConnectionException ex) when (ex.Problem.Code == "stale-session") { throw; }
+            catch
+            {
+                await context.SignOutAsync(Scheme);
+                throw;
+            }
+            await context.SignOutAsync(Scheme);
+        });
+        return app;
+    }
+
+    private static void MapAction(IEndpointRouteBuilder app, string action,
+        Func<HttpContext, LocalConnectionService, IFormCollection, Task> handler) =>
+        app.MapPost("/connection/" + action, async (HttpContext context, IAntiforgery antiforgery, LocalConnectionService connection) =>
+        {
+            try
+            {
+                if (!SameOrigin(context.Request.Headers.Origin.ToString(), context.Request)
+                    && !SameOrigin(context.Request.Headers.Referer.ToString(), context.Request))
+                {
+                    return Results.Json(new ConnectionProblem("invalid-origin", "Open the connection page in this local browser."), statusCode: 403);
+                }
+                await antiforgery.ValidateRequestAsync(context);
+                if (!context.Request.HasFormContentType || context.Request.ContentLength > 16 * 1024)
+                {
+                    return Results.BadRequest(new ConnectionProblem("invalid-form", "Submit the connection form again."));
+                }
+                var form = await context.Request.ReadFormAsync(context.RequestAborted);
+                await handler(context, connection, form);
+                return Results.LocalRedirect("/connect");
+            }
+            catch (AntiforgeryValidationException)
+            {
+                return Results.BadRequest(new ConnectionProblem("invalid-form", "The form expired. Reload Connect and try again."));
+            }
+            catch (InvalidDataException)
+            {
+                return Results.BadRequest(new ConnectionProblem("invalid-form", "The connection form was invalid. Reload Connect and try again."));
+            }
+            catch (ConnectionException ex) { return Results.Json(ex.Problem, statusCode: 409); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.Cryptography.CryptographicException)
+            {
+                return Results.Json(new ConnectionProblem("protected-cache-unavailable", "The protected account cache could not be cleared. Close other app instances and retry."), statusCode: 503);
+            }
+        });
+
+    private static Task IssueCookieAsync(HttpContext context, ConnectionTicket ticket)
+    {
+        var claims = new List<Claim>
+        {
+            new(LocalConnectionService.SessionClaim, ticket.Id),
+            new(ClaimTypes.NameIdentifier, ticket.Mailbox?.Identity.MailboxId ?? ticket.Id),
+            new("connection_verified", ticket.Mailbox is null ? "false" : "true")
+        };
+        if (ticket.Mailbox is { } mailbox)
+        {
+            claims.Add(new(ClaimTypes.Name, mailbox.DisplayName));
+        }
+        return context.SignInAsync(Scheme, new ClaimsPrincipal(new ClaimsIdentity(claims, Scheme)),
+            new AuthenticationProperties { IsPersistent = false, AllowRefresh = false });
+    }
+
+    private static bool SameOrigin(string value, HttpRequest request) => Uri.TryCreate(value, UriKind.Absolute, out var origin)
+        && origin.Scheme == request.Scheme && origin.Authority.Equals(request.Host.Value, StringComparison.OrdinalIgnoreCase)
+        && origin.UserInfo.Length == 0;
+}

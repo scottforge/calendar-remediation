@@ -16,6 +16,7 @@ public sealed class TenantSignIn : IDisposable
     private readonly IPublicClientApplication _application;
     private readonly FileStream _cacheLock;
     private readonly string _cachePath;
+    private readonly SemaphoreSlim _operations = new(1, 1);
     private bool _disposed;
 
     public TenantSignIn(TenantSignInOptions options)
@@ -26,7 +27,7 @@ public sealed class TenantSignIn : IDisposable
             throw new PlatformNotSupportedException("Live sign-in requires tested Windows CurrentUser DPAPI. No unprotected fallback exists.");
         }
         if (!Guid.TryParse(options.TenantId, out _) || !Guid.TryParse(options.ClientId, out _)
-            || !Guid.TryParse(options.MailboxObjectId, out _))
+            || (!string.IsNullOrEmpty(options.MailboxObjectId) && !Guid.TryParse(options.MailboxObjectId, out _)))
         {
             throw new ArgumentException("Tenant, public client and expected mailbox object IDs must be GUIDs.", nameof(options));
         }
@@ -71,46 +72,101 @@ public sealed class TenantSignIn : IDisposable
 
     public async Task<SignInObservation> SignInAsync(bool write, CancellationToken ct = default)
     {
-        ObjectDisposedException.ThrowIf(_disposed, this);
-        var result = await _application.AcquireTokenInteractive(Scopes(write)).WithUseEmbeddedWebView(false)
-            .WithPrompt(Prompt.SelectAccount).ExecuteAsync(ct);
-        try { Validate(result); }
-        catch
+        await _operations.WaitAsync(ct);
+        try
         {
-            await _application.RemoveAsync(result.Account);
-            throw;
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            var result = await _application.AcquireTokenInteractive(Scopes(write)).WithUseEmbeddedWebView(false)
+                .WithPrompt(Prompt.SelectAccount).ExecuteAsync(ct);
+            try { Validate(result); }
+            catch
+            {
+                await _application.RemoveAsync(result.Account);
+                throw;
+            }
+            return new(result.TenantId, _options.ClientId, result.UniqueId, result.Account.HomeAccountId.Identifier, DateTimeOffset.UtcNow,
+                "MSAL public client, system browser authorization code with PKCE and loopback callback",
+                "Windows DPAPI CurrentUser, persisted round-trip verified, exclusive cache lock", Scopes(write));
         }
-        return new(result.TenantId, _options.ClientId, result.UniqueId, result.Account.HomeAccountId.Identifier, DateTimeOffset.UtcNow,
-            "MSAL public client, system browser authorization code with PKCE and loopback callback",
-            "Windows DPAPI CurrentUser, persisted round-trip verified, exclusive cache lock", Scopes(write));
+        finally { _operations.Release(); }
     }
 
-    public async Task<string> AcquireTokenAsync(bool write, CancellationToken ct)
+    public async Task<string?> GetCachedAccountAsync(CancellationToken ct = default)
     {
-        ObjectDisposedException.ThrowIf(_disposed, this);
-        var accounts = (await _application.GetAccountsAsync()).ToArray();
-        if (accounts.Length != 1)
+        await _operations.WaitAsync(ct);
+        try
         {
-            throw new InvalidOperationException("Exactly one cached account is required. Clear cache and sign in explicitly.");
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            var accounts = (await _application.GetAccountsAsync()).ToArray();
+            return accounts.Length == 1 ? accounts[0].Username : null;
         }
-        var result = await _application.AcquireTokenSilent(Scopes(write), accounts[0]).ExecuteAsync(ct);
-        Validate(result);
-        return result.AccessToken;
+        finally { _operations.Release(); }
+    }
+
+    public async Task<SignInObservation> ContinueAsync(CancellationToken ct = default)
+    {
+        await _operations.WaitAsync(ct);
+        try
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            var accounts = (await _application.GetAccountsAsync()).ToArray();
+            if (accounts.Length != 1) { throw new InvalidOperationException("Choose an account using browser sign-in."); }
+            var result = await _application.AcquireTokenSilent(Scopes(false), accounts[0]).ExecuteAsync(ct);
+            Validate(result);
+            return new(result.TenantId, _options.ClientId, result.UniqueId, result.Account.HomeAccountId.Identifier,
+                DateTimeOffset.UtcNow, "MSAL protected cached account", "Windows DPAPI CurrentUser", Scopes(false));
+        }
+        finally { _operations.Release(); }
+    }
+
+    public Task<string> AcquireTokenAsync(bool write, CancellationToken ct) => AcquireTokenCoreAsync(write, null, ct);
+
+    public Task<string> AcquireReadTokenAsync(SignInObservation expected, CancellationToken ct) => AcquireTokenCoreAsync(false, expected, ct);
+
+    private async Task<string> AcquireTokenCoreAsync(bool write, SignInObservation? expected, CancellationToken ct)
+    {
+        await _operations.WaitAsync(ct);
+        try
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            var accounts = (await _application.GetAccountsAsync()).ToArray();
+            if (accounts.Length != 1)
+            {
+                throw new InvalidOperationException("Exactly one cached account is required. Clear cache and sign in explicitly.");
+            }
+            var result = await _application.AcquireTokenSilent(Scopes(write), accounts[0]).ExecuteAsync(ct);
+            Validate(result);
+            if (expected is not null && (!string.Equals(result.UniqueId, expected.MailboxObjectId, StringComparison.OrdinalIgnoreCase)
+                || result.Account.HomeAccountId.Identifier != expected.HomeAccountId))
+            {
+                throw new InvalidOperationException("The cached account changed. Sign in again.");
+            }
+            return result.AccessToken;
+        }
+        finally { _operations.Release(); }
     }
 
     public async Task ClearAsync()
     {
-        foreach (var account in await _application.GetAccountsAsync())
+        await _operations.WaitAsync();
+        try
         {
-            await _application.RemoveAsync(account);
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            foreach (var account in await _application.GetAccountsAsync())
+            {
+                await _application.RemoveAsync(account);
+            }
+            File.Delete(_cachePath);
         }
-        File.Delete(_cachePath);
+        finally { _operations.Release(); }
     }
 
     private void Validate(AuthenticationResult result)
     {
         if (!string.Equals(result.TenantId, _options.TenantId, StringComparison.OrdinalIgnoreCase)
-            || !string.Equals(result.UniqueId, _options.MailboxObjectId, StringComparison.OrdinalIgnoreCase))
+            || !Guid.TryParse(result.UniqueId, out _)
+            || (!string.IsNullOrEmpty(_options.MailboxObjectId)
+                && !string.Equals(result.UniqueId, _options.MailboxObjectId, StringComparison.OrdinalIgnoreCase)))
         {
             throw new InvalidOperationException("Unexpected tenant or account. No Graph request is permitted.");
         }
@@ -162,6 +218,11 @@ public sealed class TenantSignIn : IDisposable
 
     public void Dispose()
     {
-        if (!_disposed) { _cacheLock.Dispose(); _disposed = true; }
+        _operations.Wait();
+        try
+        {
+            if (!_disposed) { _cacheLock.Dispose(); _disposed = true; }
+        }
+        finally { _operations.Release(); }
     }
 }
