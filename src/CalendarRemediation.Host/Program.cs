@@ -1,6 +1,6 @@
+using System.Globalization;
 using System.Net;
 using System.Net.Sockets;
-using System.Globalization;
 using CalendarRemediation.Host.Authentication;
 using CalendarRemediation.Host.Components;
 
