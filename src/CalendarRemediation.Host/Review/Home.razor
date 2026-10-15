@@ -1,0 +1,41 @@
+﻿@page "/"
+@using CalendarRemediation.Core.Intent
+@using Microsoft.AspNetCore.Components.Web
+
+<PageTitle>Calendar Remediation</PageTitle>
+
+<section class="intro" aria-labelledby="workspace-heading">
+    <p class="eyebrow">Review before change</p>
+    <h1 id="workspace-heading">Make time match intent.</h1>
+    <p class="lead">A local workspace for reviewing meetings whose stored times may differ from the organizer's intent.</p>
+</section>
+
+<section class="notice" aria-labelledby="status-heading">
+    <h2 id="status-heading">Not connected</h2>
+    <p>This is the initial application shell. Sign-in, calendar discovery, planning, approval, and execution are not implemented.</p>
+    <p>No meetings have been loaded or changed.</p>
+</section>
+
+<section class="review-card" aria-labelledby="intent-heading">
+    <h2 id="intent-heading">Explore the intent choices</h2>
+    <p>These controls illustrate the review vocabulary. They do not confirm intent or create a plan.</p>
+    <label for="preservation-mode">What should a future review preserve?</label>
+    <select id="preservation-mode" @bind="selectedMode" aria-describedby="intent-description draft-note">
+        <option value="">Choose a preservation mode</option>
+        <option value="@PreservationMode.PreserveLocalStart">Preserve local start</option>
+        <option value="@PreservationMode.PreserveAbsoluteInstant">Preserve absolute instant</option>
+    </select>
+    <p id="intent-description" class="intent-description" aria-live="polite">@IntentDescription</p>
+    <p id="draft-note" class="muted">Illustration only. This choice stays in the current circuit and is not saved.</p>
+</section>
+
+@code {
+    private PreservationMode? selectedMode;
+
+    private string IntentDescription => selectedMode switch
+    {
+        PreservationMode.PreserveLocalStart => "Keep the intended local start time under the confirmed target rules. The absolute instant may change.",
+        PreservationMode.PreserveAbsoluteInstant => "Keep the same absolute instant. The displayed local time may change under the target rules.",
+        _ => "Intent remains unselected. A time zone label or current display alone cannot establish organizer intent."
+    };
+}

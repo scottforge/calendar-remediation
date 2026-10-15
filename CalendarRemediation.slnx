@@ -7,6 +7,7 @@
   <Folder Name="/src/">
     <Project Path="src/CalendarRemediation.Core/CalendarRemediation.Core.csproj" />
     <Project Path="src/CalendarRemediation.Graph/CalendarRemediation.Graph.csproj" />
+    <Project Path="src/CalendarRemediation.Host/CalendarRemediation.Host.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/CalendarRemediation.Tests/CalendarRemediation.Tests.csproj" />
