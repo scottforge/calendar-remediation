@@ -33,43 +33,13 @@ public sealed class MeetingAssessor(IRuleResolver rules)
     public Assessment Assess(SourceSnapshot source, AssessmentContext context)
     {
         Assessment Hold(AssessmentDisposition disposition, string reason) => new(source, disposition, null, [reason], context.Policy?.Dependencies);
-        if (source.Attendees.IsDefault || source.Unresolved.IsDefault)
+        if (AssessmentEvidence.CheckSource(source, context) is { } sourceHold)
         {
-            return Hold(AssessmentDisposition.Unresolved, "incomplete-source-evidence");
-        }
-        if (source.IsOrganizer == false || source.IsCancelled == true || source.Start <= context.Discovery.Scope.ExecutionCutoff || source.Start <= context.Now)
-        {
-            return Hold(AssessmentDisposition.Ineligible, "not-future-organizer-meeting");
-        }
-        if (source.IsAllDay == true || source.Kind is EventKind.Occurrence or EventKind.Exception or EventKind.SeriesMaster
-            || source.SeriesMasterId is not null || source.Attendees.Any(a => a.Kind is AttendeeKind.External or AttendeeKind.Resource))
-        {
-            return Hold(AssessmentDisposition.Unsupported, "outside-pilot-category");
-        }
-        if (!context.Discovery.Complete || !context.Discovery.Holds.IsEmpty || source.Identity != context.Discovery.Scope.Identity
-            || source.Start is null || source.End is null || source.End <= source.Start || source.Start < context.Discovery.Scope.Start
-            || source.Start >= context.Discovery.Scope.End || source.IsOrganizer is null || source.IsCancelled is null || source.IsAllDay is null
-            || source.Kind == EventKind.Unknown || !source.Unresolved.IsEmpty || source.Attendees.Any(a => a.Kind == AttendeeKind.Unknown))
-        {
-            return Hold(AssessmentDisposition.Unresolved, "incomplete-source-evidence");
-        }
-        if (context.Discovery.Events.IsDefault)
-        {
-            return Hold(AssessmentDisposition.Unresolved, "source-not-observed");
-        }
-        var observations = context.Discovery.Events.Where(e => e.Identity == source.Identity && e.Id == source.Id).ToArray();
-        if (observations.Length == 0 || observations.Any(e => !SourceSnapshotEvidence.Matches(e, source)))
-        {
-            return Hold(AssessmentDisposition.Unresolved, "source-not-observed-or-evidence-changed");
+            return Hold(sourceHold.Disposition, sourceHold.Reason);
         }
         var intent = context.Intent;
         var policy = context.Policy;
-        if (intent is null || intent.Identity != source.Identity || intent.EventId != source.Id || intent.SourceVersion != source.Version
-            || string.IsNullOrWhiteSpace(intent.EvidenceId) || string.IsNullOrWhiteSpace(intent.ConfirmedBy) || intent.ConfirmedAt > context.Now
-            || string.IsNullOrWhiteSpace(intent.Zone)
-            || policy is null || !policy.Approved || !policy.AdoptionVerified || source.Start < policy.EffectiveFrom
-            || !PlanBuilder.HasDependencies(policy.Dependencies)
-            || !WriteEligibility.IsAdmitted(source, context.Admission, policy.Dependencies.AdmissionHash))
+        if (intent is null || policy is null || !AssessmentEvidence.HasCurrentDecision(source, context, intent, policy))
         {
             return Hold(AssessmentDisposition.Unresolved, "missing-or-stale-decision-evidence");
         }
@@ -83,24 +53,15 @@ public sealed class MeetingAssessor(IRuleResolver rules)
             return Hold(AssessmentDisposition.Unresolved, "unsupported-intent");
         }
         var resolution = rules.Resolve(intent.LocalStart, intent.Zone, policy);
-        DateTimeOffset start;
-        if (resolution.Kind == ResolutionKind.Unique && resolution.Candidates.Length == 1
-            && (intent.SelectedOverlapInstant is null || intent.SelectedOverlapInstant == resolution.Candidates[0]))
-        {
-            start = resolution.Candidates[0];
-        }
-        else if (resolution.Kind == ResolutionKind.Overlap && intent.SelectedOverlapInstant is { } selected
-            && resolution.Candidates.Length > 1 && resolution.Candidates.Contains(selected))
-        {
-            start = selected;
-        }
-        else
+        if (AssessmentTarget.SelectStart(resolution, intent.SelectedOverlapInstant) is not { } start)
         {
             return Hold(AssessmentDisposition.Unresolved, "nonunique-or-missing-rules");
         }
-        DateTimeOffset end;
-        try { end = start.Add(source.End.Value - source.Start.Value); }
-        catch (ArgumentOutOfRangeException) { return Hold(AssessmentDisposition.Unresolved, "invalid-target-duration"); }
+        var patch = AssessmentTarget.ProjectDuration(start, source.End!.Value - source.Start!.Value, intent.Zone);
+        if (patch is null)
+        {
+            return Hold(AssessmentDisposition.Unresolved, "invalid-target-duration");
+        }
         if (start < policy.EffectiveFrom)
         {
             return Hold(AssessmentDisposition.Unresolved, "target-outside-policy");
@@ -109,8 +70,8 @@ public sealed class MeetingAssessor(IRuleResolver rules)
         {
             return Hold(AssessmentDisposition.Ineligible, "target-not-future");
         }
-        return start == source.Start && end == source.End
+        return start == source.Start && patch.End == source.End
             ? Hold(AssessmentDisposition.NoOp, "already-correct")
-            : new(source, AssessmentDisposition.Change, new(start.ToUniversalTime(), end.ToUniversalTime(), intent.Zone), [], policy.Dependencies);
+            : new(source, AssessmentDisposition.Change, patch, [], policy.Dependencies);
     }
 }
