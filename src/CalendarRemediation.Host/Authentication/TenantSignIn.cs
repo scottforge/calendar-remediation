@@ -8,62 +8,66 @@ public sealed record TenantSignInOptions(string TenantId, string ClientId, strin
 public sealed record SignInObservation(string TenantId, string ClientId, string MailboxObjectId, string HomeAccountId,
     DateTimeOffset At, string AuthenticationPath, string CacheProtection, string[] Scopes);
 
-// Windows-only persistence is intentional. There is no plaintext or in-memory fallback.
-// Holding the lock for the runner lifetime also prevents competing cache writers.
+// Windows uses protected persistence and an exclusive cache lock.
+// Other platforms retain tokens only in MSAL's process-local in-memory cache.
 public sealed class TenantSignIn : IDisposable
 {
     private readonly TenantSignInOptions _options;
     private readonly IPublicClientApplication _application;
-    private readonly FileStream _cacheLock;
+    private readonly FileStream? _cacheLock;
     private readonly string _cachePath;
+    private readonly bool _persistentCache;
     private readonly SemaphoreSlim _operations = new(1, 1);
     private bool _disposed;
 
     public TenantSignIn(TenantSignInOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
-        if (!OperatingSystem.IsWindows())
-        {
-            throw new PlatformNotSupportedException("Live sign-in requires tested Windows CurrentUser DPAPI. No unprotected fallback exists.");
-        }
         if (!Guid.TryParse(options.TenantId, out _) || !Guid.TryParse(options.ClientId, out _)
             || (!string.IsNullOrEmpty(options.MailboxObjectId) && !Guid.TryParse(options.MailboxObjectId, out _)))
         {
             throw new ArgumentException("Tenant, public client and expected mailbox object IDs must be GUIDs.", nameof(options));
         }
         _options = options;
-        Directory.CreateDirectory(options.CacheDirectory);
+        _persistentCache = OperatingSystem.IsWindows();
         _cachePath = Path.Combine(options.CacheDirectory, "msal.dpapi");
-        _cacheLock = new FileStream(Path.Combine(options.CacheDirectory, "cache.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+        if (_persistentCache)
+        {
+            Directory.CreateDirectory(options.CacheDirectory);
+            _cacheLock = new FileStream(Path.Combine(options.CacheDirectory, "cache.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+        }
         try
         {
-            VerifyProtection(options.CacheDirectory);
+            if (_persistentCache) { VerifyWindowsProtection(options.CacheDirectory); }
             _application = PublicClientApplicationBuilder.Create(options.ClientId)
                 .WithAuthority($"https://login.microsoftonline.com/{options.TenantId}")
                 .WithRedirectUri("http://localhost")
                 .Build();
-            _application.UserTokenCache.SetBeforeAccess(args =>
+            if (_persistentCache)
             {
-                if (File.Exists(_cachePath))
+                _application.UserTokenCache.SetBeforeAccess(args =>
                 {
-                    var bytes = Unprotect(File.ReadAllBytes(_cachePath));
-                    try { args.TokenCache.DeserializeMsalV3(bytes, shouldClearExistingCache: true); }
-                    finally { CryptographicOperations.ZeroMemory(bytes); }
-                }
-            });
-            _application.UserTokenCache.SetAfterAccess(args =>
-            {
-                if (args.HasStateChanged)
+                    if (File.Exists(_cachePath))
+                    {
+                        var bytes = Unprotect(File.ReadAllBytes(_cachePath));
+                        try { args.TokenCache.DeserializeMsalV3(bytes, shouldClearExistingCache: true); }
+                        finally { CryptographicOperations.ZeroMemory(bytes); }
+                    }
+                });
+                _application.UserTokenCache.SetAfterAccess(args =>
                 {
-                    var bytes = args.TokenCache.SerializeMsalV3();
-                    try { SaveProtected(_cachePath, bytes); }
-                    finally { CryptographicOperations.ZeroMemory(bytes); }
-                }
-            });
+                    if (args.HasStateChanged)
+                    {
+                        var bytes = args.TokenCache.SerializeMsalV3();
+                        try { SaveProtected(_cachePath, bytes); }
+                        finally { CryptographicOperations.ZeroMemory(bytes); }
+                    }
+                });
+            }
         }
         catch
         {
-            _cacheLock.Dispose();
+            _cacheLock?.Dispose();
             throw;
         }
     }
@@ -86,7 +90,7 @@ public sealed class TenantSignIn : IDisposable
             }
             return new(result.TenantId, _options.ClientId, result.UniqueId, result.Account.HomeAccountId.Identifier, DateTimeOffset.UtcNow,
                 "MSAL public client, system browser authorization code with PKCE and loopback callback",
-                "Windows DPAPI CurrentUser, persisted round-trip verified, exclusive cache lock", Scopes(write));
+                _persistentCache ? "Windows DPAPI CurrentUser, persisted round-trip verified, exclusive cache lock" : "MSAL process-local in-memory token cache; not persisted", Scopes(write));
         }
         finally { _operations.Release(); }
     }
@@ -114,7 +118,8 @@ public sealed class TenantSignIn : IDisposable
             var result = await _application.AcquireTokenSilent(Scopes(false), accounts[0]).ExecuteAsync(ct);
             Validate(result);
             return new(result.TenantId, _options.ClientId, result.UniqueId, result.Account.HomeAccountId.Identifier,
-                DateTimeOffset.UtcNow, "MSAL protected cached account", "Windows DPAPI CurrentUser", Scopes(false));
+                DateTimeOffset.UtcNow, _persistentCache ? "MSAL protected cached account" : "MSAL process-local in-memory cached account",
+                _persistentCache ? "Windows DPAPI CurrentUser" : "In-memory only; tokens are lost when the process exits", Scopes(false));
         }
         finally { _operations.Release(); }
     }
@@ -156,7 +161,7 @@ public sealed class TenantSignIn : IDisposable
             {
                 await _application.RemoveAsync(account);
             }
-            File.Delete(_cachePath);
+            if (_persistentCache) { File.Delete(_cachePath); }
         }
         finally { _operations.Release(); }
     }
@@ -172,9 +177,9 @@ public sealed class TenantSignIn : IDisposable
         }
     }
 
-    [SupportedOSPlatform("windows")]
-    private static void VerifyProtection(string directory)
+    private static void VerifyWindowsProtection(string directory)
     {
+        if (!OperatingSystem.IsWindows()) { throw new PlatformNotSupportedException(); }
         var path = Path.Combine(directory, "protection-check.dpapi");
         var sample = RandomNumberGenerator.GetBytes(32);
         try
@@ -221,7 +226,7 @@ public sealed class TenantSignIn : IDisposable
         _operations.Wait();
         try
         {
-            if (!_disposed) { _cacheLock.Dispose(); _disposed = true; }
+            if (!_disposed) { _cacheLock?.Dispose(); _disposed = true; }
         }
         finally { _operations.Release(); }
     }

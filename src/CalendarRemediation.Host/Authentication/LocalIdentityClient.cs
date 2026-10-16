@@ -13,16 +13,14 @@ public sealed class LocalIdentityClient : ILocalIdentityClient
     public LocalIdentityClient(IOptions<LocalConnectionOptions> options)
     {
         var value = options.Value;
-        Unavailable = !OperatingSystem.IsWindows()
-            ? new("windows-required", "Microsoft 365 connection requires Windows protected storage.")
-            : !Guid.TryParse(value.TenantId, out _) || !Guid.TryParse(value.ClientId, out _)
+        Unavailable = !Guid.TryParse(value.TenantId, out _) || !Guid.TryParse(value.ClientId, out _)
                 ? new("configuration-required", "Configure the Microsoft 365 tenant and public client IDs to enable connection.")
                 : null;
         var directory = string.IsNullOrWhiteSpace(value.CacheDirectory)
             ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                 "CalendarRemediation", "Identity", value.TenantId, value.ClientId)
             : value.CacheDirectory;
-        if (Unavailable is null && !Path.IsPathFullyQualified(directory))
+        if (OperatingSystem.IsWindows() && Unavailable is null && !Path.IsPathFullyQualified(directory))
         {
             Unavailable = new("configuration-required", "Protected account storage requires an absolute per-user cache directory.");
         }
