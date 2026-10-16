@@ -1,6 +1,4 @@
-using System.Globalization;
 using System.Net.Http.Headers;
-using System.Text.Json;
 using CalendarRemediation.Core.Execution;
 using CalendarRemediation.Core.Planning;
 using CalendarRemediation.Graph.Discovery;
@@ -23,13 +21,7 @@ public sealed class GraphCalendarWriter(GraphTransport transport) : ICalendarWri
         {
             var response = await transport.SendAsync(HttpMethod.Patch, GraphApi.EventPatch(write.Source.Id),
                 json, write.Source.Guard, write.AttemptId, cancellationToken).ConfigureAwait(false);
-            var outcome = response.Status switch
-            {
-                >= 200 and < 300 => MutationOutcome.Accepted,
-                412 => MutationOutcome.Conflict,
-                >= 400 and < 500 when response.Status is not (408 or 429) => MutationOutcome.Rejected,
-                _ => MutationOutcome.Unknown
-            };
+            var outcome = GraphMutationOutcome.Classify(response.Status);
             return new(outcome, response.Exchange.RequestId);
         }
         catch (HttpRequestException) { return new(MutationOutcome.Unknown, null); }
