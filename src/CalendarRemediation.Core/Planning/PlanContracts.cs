@@ -65,21 +65,32 @@ public static class PlanBuilder
         && !string.IsNullOrWhiteSpace(dependencies.MappingHash) && !string.IsNullOrWhiteSpace(dependencies.AdoptionHash)
         && !string.IsNullOrWhiteSpace(dependencies.AdmissionHash);
 
-    internal static bool CanSelect(PlanItem item, DateTimeOffset now, DiscoveryScope scope)
-    {
-        if (!HasDependencies(item.Dependencies) || item.Source.Start is null || item.Source.End <= item.Source.Start
-            || item.Source.IsOrganizer != true || item.Source.IsCancelled != false || item.Source.IsAllDay != false
-            || item.Source.Kind != EventKind.SingleInstance || item.Source.SeriesMasterId is not null
-            || string.IsNullOrWhiteSpace(item.Source.Version) || string.IsNullOrWhiteSpace(item.Source.Guard)
-            || item.Source.Guard == "*" || string.IsNullOrWhiteSpace(item.Source.Organizer)
-            || item.Source.Attendees.Any(a => a.Kind != AttendeeKind.Internal || string.IsNullOrWhiteSpace(a.Address))
-            || item.Source.Start <= now || item.Source.Start <= scope.ExecutionCutoff || item.Source.Start < scope.Start || item.Source.Start >= scope.End
-            || item.Intent.ConfirmedAt > now || item.Intent.LocalStart.Kind != DateTimeKind.Unspecified
-            || string.IsNullOrWhiteSpace(item.Intent.Zone) || !item.Source.Unresolved.IsEmpty)
-        {
-            return false;
-        }
-        return item.Disposition switch
+    internal static bool CanSelect(PlanItem item, DateTimeOffset now, DiscoveryScope scope) =>
+        HasEligibleSource(item.Source)
+        && HasDecisionEvidence(item, now)
+        && IsSourceInExecutionScope(item.Source, now, scope)
+        && HasSelectableDisposition(item, now, scope);
+
+    private static bool HasEligibleSource(SourceSnapshot source) =>
+        source.Start is not null && source.End is not null && source.End > source.Start
+        && source.IsOrganizer == true && source.IsCancelled == false && source.IsAllDay == false
+        && source.Kind == EventKind.SingleInstance && source.SeriesMasterId is null
+        && !string.IsNullOrWhiteSpace(source.Version) && !string.IsNullOrWhiteSpace(source.Guard)
+        && source.Guard != "*" && !string.IsNullOrWhiteSpace(source.Organizer)
+        && !source.Attendees.IsDefault
+        && source.Attendees.All(a => a.Kind == AttendeeKind.Internal && !string.IsNullOrWhiteSpace(a.Address))
+        && !source.Unresolved.IsDefault && source.Unresolved.IsEmpty;
+
+    private static bool HasDecisionEvidence(PlanItem item, DateTimeOffset now) =>
+        HasDependencies(item.Dependencies) && item.Intent.ConfirmedAt <= now
+        && item.Intent.LocalStart.Kind == DateTimeKind.Unspecified && !string.IsNullOrWhiteSpace(item.Intent.Zone);
+
+    private static bool IsSourceInExecutionScope(SourceSnapshot source, DateTimeOffset now, DiscoveryScope scope) =>
+        source.Start > now && source.Start > scope.ExecutionCutoff
+        && source.Start >= scope.Start && source.Start < scope.End;
+
+    private static bool HasSelectableDisposition(PlanItem item, DateTimeOffset now, DiscoveryScope scope) =>
+        item.Disposition switch
         {
             AssessmentDisposition.NoOp => item.Patch is null,
             AssessmentDisposition.Change => item.Patch is { } patch && patch.Start > now && patch.Start > scope.ExecutionCutoff
@@ -87,7 +98,6 @@ public static class PlanBuilder
                 && item.Intent.Mode == Intent.PreservationMode.PreserveLocalStart && patch.Zone == item.Intent.Zone,
             _ => false
         };
-    }
 }
 
 public static class PlanApproval

@@ -186,33 +186,45 @@ public static class FeasibilityGate
     private static bool IsValidWorkload(WorkloadProfile workload, DateTimeOffset now,
         IReadOnlySet<string> verifiedArtifactHashes) =>
         workload.SchemaVersion == 1
-        && workload.Complete
+        && HasRepresentativeWorkloadObservation(workload)
+        && HasCredibleWorkloadMeasurements(workload)
+        && WorkloadBudgetCoversMeasuredDemand(workload)
+        && IsWorkloadBudgetWithinPilotLimits(workload)
+        && AreArtifactsVerified(workload.Measurements, verifiedArtifactHashes)
+        && IsSignedBy(workload.AcceptedBy, workload.AcceptedAt, now);
+
+    private static bool HasRepresentativeWorkloadObservation(WorkloadProfile workload) =>
+        workload.Complete
         && workload.Start != default
         && workload.Start < workload.End
         && workload.End - workload.Start <= TimeSpan.FromDays(366)
         && workload.Events > 0
         && workload.OrganizerMeetings > 0
-        && workload.OrganizerMeetings <= workload.Events
-        && workload.Pages > 0
+        && workload.OrganizerMeetings <= workload.Events;
+
+    private static bool HasCredibleWorkloadMeasurements(WorkloadProfile workload) =>
+        workload.Pages > 0
         && workload.DetailReads >= workload.Events
         && workload.ThrottledResponses >= 0
         && double.IsFinite(workload.ElapsedSeconds)
         && workload.ElapsedSeconds > 0
         && workload.ReviewSecondsPerMeeting is > 0
         && double.IsFinite(workload.ReviewSecondsPerMeeting.Value)
-        && workload.ProposedMaxEvents >= workload.Events
+        && !string.IsNullOrWhiteSpace(workload.MeasurementContext);
+
+    private static bool WorkloadBudgetCoversMeasuredDemand(WorkloadProfile workload) =>
+        workload.ProposedMaxEvents >= workload.Events
         && workload.ProposedMaxPages >= workload.Pages
         && workload.ProposedMaxDetailReads >= workload.DetailReads
-        && workload.ProposedSelectedWrites > 0
+        && workload.ProposedRunSeconds >= workload.ElapsedSeconds;
+
+    private static bool IsWorkloadBudgetWithinPilotLimits(WorkloadProfile workload) =>
+        workload.ProposedSelectedWrites > 0
         && workload.ProposedMaxEvents <= 10000
         && workload.ProposedMaxPages <= 1000
         && workload.ProposedMaxDetailReads <= 10000
         && workload.ProposedRunSeconds <= 3600
-        && workload.ProposedSelectedWrites <= workload.ProposedMaxEvents
-        && workload.ProposedRunSeconds >= workload.ElapsedSeconds
-        && !string.IsNullOrWhiteSpace(workload.MeasurementContext)
-        && AreArtifactsVerified(workload.Measurements, verifiedArtifactHashes)
-        && IsSignedBy(workload.AcceptedBy, workload.AcceptedAt, now);
+        && workload.ProposedSelectedWrites <= workload.ProposedMaxEvents;
 
     private static bool HasHumanGoDecision(FeasibilityDecision decision, EvidenceClaim[] claims,
         RuleEvidenceManifest rules, WorkloadProfile workload, CategoryAdmission[] categories, DateTimeOffset now) =>
