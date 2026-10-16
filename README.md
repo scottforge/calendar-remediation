@@ -1,6 +1,24 @@
 # Calendar Remediation
 
-A workspace for reviewing calendar scheduling against organizer intent, built with the .NET.
+Helps meeting organizers in British Columbia, Alberta, Saskatchewan, and Manitoba find meetings that should move to their confirmed local time.
+Review the meetings you organized, choose which ones to correct, and approve the exact changes and attendee notifications before they reach your calendar.
+
+## How it works
+
+- Sign in with your Microsoft 365 work account and confirm your location.
+- Review all meetings you organized over the next 90 days, with an optional date-range filter.
+- Optionally ask Copilot to select meetings that may need a local-time correction, or batch update meetings yourself.
+- Copilot will explain its choices and uncertainty, allowing you to make informed decisions.
+- Review the exact changes and attendee notifications for selected meetings, then approve the updates.
+- The app will use Microsoft Graph API to safely update your meetings and send notifications to attendees.
+- Single meetings and recurring series are supported, while complex recurrence patterns are held for review.
+
+### Microsoft sign-in
+
+Authentication happens in your browser, where Microsoft asks you to sign in and grant the required calendar permissions.
+
+- Grant accesses your calendar using the same account permissions.
+- Approve the exact changes before it updates meetings you organize.
 
 ## Development
 
@@ -29,7 +47,10 @@ Stop it with `Ctrl+C`.
 | `src/CalendarRemediation.Core` | Platform-neutral domain foundations | None |
 | `src/CalendarRemediation.Graph` | Graph discovery, mapping, and execution adapters. | Core |
 | `src/CalendarRemediation.Host` | Local hosting, shared Razor shell, and CSS. | Core, Graph |
-| `tests/CalendarRemediation.Tests` | xUnit project for domain and contract tests. | Core, Graph, Host |
+| `tests/CalendarRemediation.Core.Tests` | xUnit project for Core tests. | Core |
+| `tests/CalendarRemediation.Graph.Tests` | xUnit project for Graph adapter and contract tests. | Graph, Testing |
+| `tests/CalendarRemediation.Host.Tests` | xUnit project for Host tests. | Host |
+| `tests/CalendarRemediation.Testing` | Shared test fixtures and Graph HTTP test handler. | Core, Graph |
 
 Application behavior is written in C# and Razor with CSS for presentation.
 Blazor framework scripts and reconnect assets come from the generated .NET template.
