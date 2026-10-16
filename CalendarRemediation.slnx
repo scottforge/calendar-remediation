@@ -10,6 +10,9 @@
     <Project Path="src/CalendarRemediation.Host/CalendarRemediation.Host.csproj" />
   </Folder>
   <Folder Name="/tests/">
-    <Project Path="tests/CalendarRemediation.Tests/CalendarRemediation.Tests.csproj" />
+    <Project Path="tests/CalendarRemediation.Core.Tests/CalendarRemediation.Core.Tests.csproj" />
+    <Project Path="tests/CalendarRemediation.Graph.Tests/CalendarRemediation.Graph.Tests.csproj" />
+    <Project Path="tests/CalendarRemediation.Host.Tests/CalendarRemediation.Host.Tests.csproj" />
+    <Project Path="tests/CalendarRemediation.Testing/CalendarRemediation.Testing.csproj" />
   </Folder>
 </Solution>

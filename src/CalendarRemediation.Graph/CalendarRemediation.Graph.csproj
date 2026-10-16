@@ -2,7 +2,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\CalendarRemediation.Core\CalendarRemediation.Core.csproj" />
-    <InternalsVisibleTo Include="CalendarRemediation.Tests" />
+    <InternalsVisibleTo Include="CalendarRemediation.Graph.Tests" />
   </ItemGroup>
 
   <PropertyGroup>
