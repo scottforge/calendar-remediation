@@ -18,11 +18,7 @@ public sealed class GraphCalendarWriter(GraphTransport transport) : ICalendarWri
             return new(MutationOutcome.Rejected, null);
         }
         if (cancellationToken.IsCancellationRequested) { return new(MutationOutcome.Rejected, null); }
-        var json = JsonSerializer.Serialize(new
-        {
-            start = new { dateTime = write.Patch.Start.UtcDateTime.ToString("O", CultureInfo.InvariantCulture), timeZone = "UTC" },
-            end = new { dateTime = write.Patch.End.UtcDateTime.ToString("O", CultureInfo.InvariantCulture), timeZone = "UTC" }
-        });
+        var json = GraphEventPatch.Serialize(write.Patch.Start, write.Patch.End);
         try
         {
             var response = await transport.SendAsync(HttpMethod.Patch, GraphApi.EventPatch(write.Source.Id),

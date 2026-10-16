@@ -1,4 +1,3 @@
-using System.Globalization;
 using System.Text.Json;
 using CalendarRemediation.Graph.Discovery;
 
@@ -45,11 +44,7 @@ public sealed class ConditionalWriteProbe(GraphTransport transport, TimeProvider
         var before = beforeResponse.Body!.Value;
         ConditionalProbePolicy.ValidateDisposable(before, prepared.EventId, prepared.Marker, clock.GetUtcNow());
         ConditionalProbePolicy.ValidateCompetingEdit(prepared, before);
-        var patch = JsonSerializer.Serialize(new
-        {
-            start = new { dateTime = proposedStart.UtcDateTime.ToString("yyyy-MM-ddTHH:mm:ss", CultureInfo.InvariantCulture), timeZone = "UTC" },
-            end = new { dateTime = proposedEnd.UtcDateTime.ToString("yyyy-MM-ddTHH:mm:ss", CultureInfo.InvariantCulture), timeZone = "UTC" }
-        });
+        var patch = GraphEventPatch.Serialize(proposedStart, proposedEnd);
         using var patchDocument = JsonDocument.Parse(patch);
         ConditionalProbePolicy.ValidatePatch(before, patchDocument.RootElement);
         var dispatchId = Guid.NewGuid();
