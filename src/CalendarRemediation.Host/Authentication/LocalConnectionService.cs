@@ -145,8 +145,8 @@ public sealed class LocalConnectionService(ILocalIdentityClient identity, ILocal
         lock (_sync)
         {
             var session = Require(principal, version);
-            session.Operation?.Cancel();
             session.Revision++;
+            session.Operation?.Cancel();
             session.Discovery = null;
             session.Problem = new("cancelled", "The operation was cancelled.");
             if (session.Phase is ConnectionPhase.SigningIn or ConnectionPhase.AwaitingCompletion)
