@@ -58,33 +58,8 @@ public sealed class GraphTransport(HttpClient client, Func<CancellationToken, Ta
             return new((int)response.StatusCode, null, Exchange(0));
         }
         await using var stream = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
-        using var buffer = new MemoryStream();
-        var chunk = new byte[8192];
-        int read;
-        while ((read = await stream.ReadAsync(chunk, ct).ConfigureAwait(false)) != 0)
-        {
-            if (buffer.Length + read > MaxResponseBytes)
-            {
-                throw new InvalidDataException("Graph response exceeded the bounded response size.");
-            }
-            buffer.Write(chunk, 0, read);
-        }
-        JsonElement? body = null;
-        // Error bodies can contain calendar data. Retain status and correlation only.
-        if (response.IsSuccessStatusCode && buffer.Length > 0)
-        {
-            try
-            {
-                using var document = JsonDocument.Parse(buffer.ToArray());
-                body = document.RootElement.Clone();
-            }
-            catch (JsonException)
-            {
-                // Preserve HTTP status even if a successful response has unusable JSON.
-                // Reads fail closed on a missing body, while a stale accepted PATCH is still a guard failure.
-                body = null;
-            }
-        }
-        return new((int)response.StatusCode, body, Exchange(buffer.Length));
+        var content = await GraphResponseBody.ReadBoundedAsync(stream, MaxResponseBytes, ct).ConfigureAwait(false);
+        var body = GraphResponseBody.ParseJson((int)response.StatusCode, content);
+        return new((int)response.StatusCode, body, Exchange(content.Length));
     }
 }
