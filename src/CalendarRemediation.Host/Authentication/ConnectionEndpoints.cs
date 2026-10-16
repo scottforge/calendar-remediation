@@ -49,18 +49,13 @@ public static class ConnectionEndpoints
 
     public static IApplicationBuilder UseLocalConnectionGuard(this IApplicationBuilder app) => app.Use(async (context, next) =>
     {
-        var request = context.Request;
-        var remote = context.Connection.RemoteIpAddress;
-        var host = request.Host.Host;
         var options = context.RequestServices.GetRequiredService<IOptions<LocalConnectionOptions>>().Value;
-        if (remote is null || !IPAddress.IsLoopback(remote) || request.Scheme != "http" || request.Host.Port != options.Port
-            || !(host.Equals("localhost", StringComparison.OrdinalIgnoreCase) || host is "127.0.0.1" or "[::1]" or "::1")
-            || (request.Headers.Origin.Count > 0 && !SameOrigin(request.Headers.Origin.ToString(), request))
-            || request.Headers["Sec-Fetch-Site"] == "cross-site")
+        if (!IsAllowedLocalRequest(context.Request, context.Connection.RemoteIpAddress, options.Port))
         {
             context.Response.StatusCode = StatusCodes.Status403Forbidden;
             return;
         }
+        var request = context.Request;
         if (request.Path.StartsWithSegments("/connection"))
         {
             context.Response.Headers.CacheControl = "no-store";
@@ -165,11 +160,17 @@ public static class ConnectionEndpoints
             catch (ConnectionException ex) { return Results.Json(ex.Problem, statusCode: 409); }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.Cryptography.CryptographicException)
             {
-                return Results.Json(new ConnectionProblem("protected-cache-unavailable", "The protected account cache could not be cleared. Close other app instances and retry."), statusCode: 503);
+                return Results.Json(new ConnectionProblem("account-cache-unavailable", "The account cache could not be cleared. Close other app instances and retry."), statusCode: 503);
             }
         });
 
     private static Task IssueCookieAsync(HttpContext context, ConnectionTicket ticket)
+    {
+        return context.SignInAsync(Scheme, CreatePrincipal(ticket),
+            new AuthenticationProperties { IsPersistent = false, AllowRefresh = false });
+    }
+
+    private static ClaimsPrincipal CreatePrincipal(ConnectionTicket ticket)
     {
         var claims = new List<Claim>
         {
@@ -181,8 +182,16 @@ public static class ConnectionEndpoints
         {
             claims.Add(new(ClaimTypes.Name, mailbox.DisplayName));
         }
-        return context.SignInAsync(Scheme, new ClaimsPrincipal(new ClaimsIdentity(claims, Scheme)),
-            new AuthenticationProperties { IsPersistent = false, AllowRefresh = false });
+        return new ClaimsPrincipal(new ClaimsIdentity(claims, Scheme));
+    }
+
+    private static bool IsAllowedLocalRequest(HttpRequest request, IPAddress? remote, int configuredPort)
+    {
+        var host = request.Host.Host;
+        return remote is not null && IPAddress.IsLoopback(remote) && request.Scheme == "http" && request.Host.Port == configuredPort
+            && (host.Equals("localhost", StringComparison.OrdinalIgnoreCase) || host is "127.0.0.1" or "[::1]" or "::1")
+            && (request.Headers.Origin.Count == 0 || SameOrigin(request.Headers.Origin.ToString(), request))
+            && request.Headers["Sec-Fetch-Site"] != "cross-site";
     }
 
     private static bool SameOrigin(string value, HttpRequest request) => Uri.TryCreate(value, UriKind.Absolute, out var origin)

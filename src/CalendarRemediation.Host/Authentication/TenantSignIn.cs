@@ -39,37 +39,42 @@ public sealed class TenantSignIn : IDisposable
         try
         {
             if (_persistentCache) { VerifyWindowsProtection(options.CacheDirectory); }
-            _application = PublicClientApplicationBuilder.Create(options.ClientId)
-                .WithAuthority($"https://login.microsoftonline.com/{options.TenantId}")
-                .WithRedirectUri("http://localhost")
-                .Build();
-            if (_persistentCache)
-            {
-                _application.UserTokenCache.SetBeforeAccess(args =>
-                {
-                    if (File.Exists(_cachePath))
-                    {
-                        var bytes = Unprotect(File.ReadAllBytes(_cachePath));
-                        try { args.TokenCache.DeserializeMsalV3(bytes, shouldClearExistingCache: true); }
-                        finally { CryptographicOperations.ZeroMemory(bytes); }
-                    }
-                });
-                _application.UserTokenCache.SetAfterAccess(args =>
-                {
-                    if (args.HasStateChanged)
-                    {
-                        var bytes = args.TokenCache.SerializeMsalV3();
-                        try { SaveProtected(_cachePath, bytes); }
-                        finally { CryptographicOperations.ZeroMemory(bytes); }
-                    }
-                });
-            }
+            _application = BuildApplication(options);
+            if (_persistentCache) { ConfigurePersistentCache(_application); }
         }
         catch
         {
             _cacheLock?.Dispose();
             throw;
         }
+    }
+
+    private static IPublicClientApplication BuildApplication(TenantSignInOptions options) =>
+        PublicClientApplicationBuilder.Create(options.ClientId)
+            .WithAuthority($"https://login.microsoftonline.com/{options.TenantId}")
+            .WithRedirectUri("http://localhost")
+            .Build();
+
+    private void ConfigurePersistentCache(IPublicClientApplication application)
+    {
+        application.UserTokenCache.SetBeforeAccess(args =>
+        {
+            if (File.Exists(_cachePath))
+            {
+                var bytes = Unprotect(File.ReadAllBytes(_cachePath));
+                try { args.TokenCache.DeserializeMsalV3(bytes, shouldClearExistingCache: true); }
+                finally { CryptographicOperations.ZeroMemory(bytes); }
+            }
+        });
+        application.UserTokenCache.SetAfterAccess(args =>
+        {
+            if (args.HasStateChanged)
+            {
+                var bytes = args.TokenCache.SerializeMsalV3();
+                try { SaveProtected(_cachePath, bytes); }
+                finally { CryptographicOperations.ZeroMemory(bytes); }
+            }
+        });
     }
 
     public static string[] Scopes(bool write) => [write ? "Calendars.ReadWrite" : "Calendars.Read", "User.Read"];

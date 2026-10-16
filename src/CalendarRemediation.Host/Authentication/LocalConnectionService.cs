@@ -111,19 +111,26 @@ public sealed class LocalConnectionService(ILocalIdentityClient identity, ILocal
         lock (_sync)
         {
             var session = RequireConnected(principal, version);
-            if (!LocationZones.TryGetValue(location.Province, out var zones) || !zones.Contains(location.TimeZoneId, StringComparer.Ordinal)
-                || string.IsNullOrWhiteSpace(location.Community) || location.Community.Length > 100 || location.Community.Any(char.IsControl))
-            {
-                throw new ConnectionException(new("invalid-location", "Choose BC, AB, SK or MB, enter a community, and confirm one of its listed time zones."));
-            }
+            var confirmedLocation = ValidateLocation(location);
             session.Operation?.Cancel();
-            session.Location = location with { Community = location.Community.Trim() };
+            session.Location = confirmedLocation;
             session.Discovery = null;
             session.Problem = null;
             session.Phase = ConnectionPhase.Connected;
             // A completed old discovery cannot publish into this location generation.
             session.Revision++;
         }
+    }
+
+    private static ConfirmedLocation ValidateLocation(ConfirmedLocation location)
+    {
+        if (!LocationZones.TryGetValue(location.Province, out var zones) || !zones.Contains(location.TimeZoneId, StringComparer.Ordinal)
+            || string.IsNullOrWhiteSpace(location.Community) || location.Community.Length > 100 || location.Community.Any(char.IsControl))
+        {
+            throw new ConnectionException(new("invalid-location", "Choose BC, AB, SK or MB, enter a community, and confirm one of its listed time zones."));
+        }
+
+        return location with { Community = location.Community.Trim() };
     }
 
     public void StartDiscovery(ClaimsPrincipal principal, string version)
@@ -316,7 +323,7 @@ public sealed class LocalConnectionService(ILocalIdentityClient identity, ILocal
         OperationCanceledException => new("cancelled", "The operation was cancelled or timed out. You can try again."),
         MsalUiRequiredException => new("interaction-required", "Your cached account needs browser sign-in. Choose Sign in with Microsoft 365."),
         MsalException => new("sign-in-failed", "Microsoft 365 sign-in did not complete. Try again or choose another account."),
-        IOException or UnauthorizedAccessException or CryptographicException => new("protected-cache-unavailable", "Protected account storage is unavailable or in use by another app instance. Close the other instance and retry."),
+        IOException or UnauthorizedAccessException or CryptographicException => new("account-cache-unavailable", "The account cache is unavailable or in use by another app instance. Close the other instance and retry."),
         _ => new("connection-failed", "The connection could not be verified. Try signing in again.")
     };
 
