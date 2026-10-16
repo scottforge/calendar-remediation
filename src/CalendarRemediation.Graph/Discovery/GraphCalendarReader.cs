@@ -1,4 +1,3 @@
-using System.Collections.Immutable;
 using System.Text.Json;
 using CalendarRemediation.Core.Discovery;
 
@@ -16,100 +15,67 @@ public sealed class GraphCalendarReader(GraphTransport transport) : ICalendarRea
         {
             throw new ArgumentException("Explicit UTC scope and bounded positive budgets are required.", nameof(scope));
         }
-        var holds = ImmutableArray.CreateBuilder<string>();
-        var zones = new HashSet<string>(StringComparer.Ordinal);
-        var views = new Dictionary<string, SourceSnapshot>(StringComparer.Ordinal);
-        var events = new Dictionary<string, SourceSnapshot>(StringComparer.Ordinal);
-        var visited = new HashSet<string>(StringComparer.Ordinal);
-        var pages = 0;
-        var details = 0;
-        var observations = 0;
+        var state = new DiscoveryState(scope);
         using var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         budget.CancelAfter(scope.Budget.Duration);
         var ct = budget.Token;
         try
         {
             var identityHold = await CheckIdentityAsync(scope.Identity, ct).ConfigureAwait(false);
-            if (identityHold is not null) { holds.Add(identityHold); }
-            else
-            {
-                foreach (var zoneUrl in new[] { GraphApi.WindowsTimeZonesUrl, GraphApi.IanaTimeZonesUrl })
-                {
-                    var zonePage = await GetAsync(zoneUrl, ct).ConfigureAwait(false);
-                    if (!GraphJson.TryArray(zonePage, "value", out var values) || values.GetArrayLength() == 0 || zonePage.TryGetProperty("@odata.nextLink", out _))
-                    {
-                        throw new InvalidDataException();
-                    }
-                    foreach (var zone in values.EnumerateArray())
-                    {
-                        var alias = GraphJson.Text(zone, "alias");
-                        if (string.IsNullOrWhiteSpace(alias)) { throw new InvalidDataException(); }
-                        zones.Add(alias);
-                    }
-                }
-                string? next = GraphApi.CalendarView(scope.Start, scope.End);
-                var exhausted = false;
-                while (next is not null && !exhausted)
-                {
-                    if (pages >= scope.Budget.Pages) { holds.Add("page-budget"); break; }
-                    if (!visited.Add(next)) { holds.Add("paging-cycle"); break; }
-                    if (!GraphApi.IsCalendarViewUri(next))
-                    {
-                        holds.Add("invalid-next-link");
-                        break;
-                    }
-                    var page = await GetAsync(next, ct).ConfigureAwait(false);
-                    pages++;
-                    if (!GraphJson.TryArray(page, "value", out var values)) { throw new InvalidDataException(); }
-                    foreach (var observation in values.EnumerateArray())
-                    {
-                        if (++observations > scope.Budget.Events) { holds.Add("event-budget"); exhausted = true; break; }
-                        var source = GraphEventMapper.Map(scope.Identity, observation);
-                        if (source is null) { holds.Add("invalid-response"); continue; }
-                        if (views.TryGetValue(source.Id, out var previous))
-                        {
-                            if (!SourceSnapshotEvidence.Matches(previous, source)) { holds.Add("conflicting-observation"); }
-                            continue;
-                        }
-                        views.Add(source.Id, source);
-                        if (details >= scope.Budget.Details) { holds.Add("detail-budget"); exhausted = true; break; }
-                        details++;
-                        try
-                        {
-                            var detail = await ReadEventAsync(scope.Identity, source.Id, ct).ConfigureAwait(false);
-                            if (detail is null)
-                            {
-                                holds.Add("detail read unavailable");
-                                events.Add(source.Id, source with { Unresolved = source.Unresolved.Add("detail-read-unavailable") });
-                            }
-                            else
-                            {
-                                if (!SourceSnapshotEvidence.Matches(source, detail)) { holds.Add("conflicting-observation"); }
-                                events.Add(source.Id, detail);
-                            }
-                        }
-                        catch (Exception ex) when (ex is HttpRequestException or IOException or JsonException)
-                        {
-                            holds.Add("detail read unavailable");
-                            events.Add(source.Id, source with { Unresolved = source.Unresolved.Add("detail-read-unavailable") });
-                        }
-                    }
-                    if (page.TryGetProperty("@odata.nextLink", out var link))
-                    {
-                        next = link.ValueKind == JsonValueKind.String ? link.GetString() : null;
-                        if (string.IsNullOrWhiteSpace(next)) { holds.Add("invalid-next-link"); break; }
-                    }
-                    else { next = null; }
-                }
-            }
+            if (identityHold is not null) { state.AddHold(identityHold); }
+            else { await ReadCalendarViewAsync(scope, state, ct).ConfigureAwait(false); }
         }
-        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested) { holds.Add("duration-budget"); }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested) { state.AddHold("duration-budget"); }
         catch (Exception ex) when (ex is HttpRequestException or IOException or JsonException or InvalidOperationException or UriFormatException)
         {
-            holds.Add("read-unavailable");
+            state.AddHold("read-unavailable");
         }
-        return new(scope, holds.Count == 0, [.. events.Values.OrderBy(e => e.Id, StringComparer.Ordinal)],
-            [.. zones.Order(StringComparer.Ordinal)], [.. holds.Distinct(StringComparer.Ordinal)], pages, details);
+        return state.Snapshot();
+    }
+
+    private async Task ReadCalendarViewAsync(DiscoveryScope scope, DiscoveryState state, CancellationToken ct)
+    {
+        foreach (var zoneUrl in new[] { GraphApi.WindowsTimeZonesUrl, GraphApi.IanaTimeZonesUrl })
+        {
+            var zonePage = await GetAsync(zoneUrl, ct).ConfigureAwait(false);
+            if (!GraphJson.TryArray(zonePage, "value", out var aliases) || aliases.GetArrayLength() == 0
+                || zonePage.TryGetProperty("@odata.nextLink", out _)) { throw new InvalidDataException(); }
+            // Enumerate incrementally so aliases preceding malformed data remain in partial results.
+            state.AddZones(ReadZoneAliases(aliases));
+        }
+
+        string? next = GraphApi.CalendarView(scope.Start, scope.End);
+        var exhausted = false;
+        while (next is not null && !exhausted && state.AdmitPage(next) == DiscoveryPageAction.ReadPage)
+        {
+            var page = await GetAsync(next, ct).ConfigureAwait(false);
+            state.RecordPageFetched();
+            if (!GraphJson.TryArray(page, "value", out var values)) { throw new InvalidDataException(); }
+            foreach (var observation in values.EnumerateArray())
+            {
+                var decision = state.AdmitObservation(observation);
+                if (decision.Action == DiscoveryObservationAction.Skip) { continue; }
+                if (decision.Action == DiscoveryObservationAction.Stop) { exhausted = true; break; }
+                var source = decision.Source!;
+                SourceSnapshot? detail;
+                try { detail = await ReadEventAsync(scope.Identity, source.Id, ct).ConfigureAwait(false); }
+                catch (Exception ex) when (ex is HttpRequestException or IOException or JsonException) { detail = null; }
+                state.RecordDetail(DiscoveryDetailDecision.Reconcile(source, detail));
+            }
+            var continuation = DiscoveryContinuation.Parse(page);
+            if (continuation.Kind == DiscoveryContinuationKind.Invalid) { state.AddHold("invalid-next-link"); break; }
+            next = continuation.Address;
+        }
+    }
+
+    private static IEnumerable<string> ReadZoneAliases(JsonElement aliases)
+    {
+        foreach (var zone in aliases.EnumerateArray())
+        {
+            var alias = GraphJson.Text(zone, "alias");
+            if (string.IsNullOrWhiteSpace(alias)) { throw new InvalidDataException(); }
+            yield return alias;
+        }
     }
 
     public async Task<SourceSnapshot?> ReadAsync(CalendarIdentity identity, string eventId,
