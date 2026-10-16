@@ -40,6 +40,11 @@ public static class GraphApi
 
     public static Uri ValidateUri(string address)
     {
+        if (address.Length > 0 && (address[0] is '/' or '\\'))
+        {
+            throw new InvalidOperationException("Graph destination is outside the configured cloud and user path.");
+        }
+
         var uri = new Uri(address, UriKind.Absolute);
         var userPath = CurrentUser.AbsolutePath;
         if (uri.Scheme != CurrentUser.Scheme || uri.Host != CurrentUser.Host || !uri.IsDefaultPort
