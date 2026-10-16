@@ -446,12 +446,12 @@ public sealed class LocalConnectionServiceTests
     public async Task UnavailableIdentityIsDisabledWithoutCacheOrGraphAccess()
     {
         await using var h = new ConnectionHarness();
-        h.Identity.Unavailable = new("windows-required", "Synthetic disabled client");
+        h.Identity.Unavailable = new("configuration-required", "Synthetic disabled client");
         var bootstrap = h.Bootstrap();
         var state = await h.Service.GetStateAsync(Principal(bootstrap));
         Assert.Equal(ConnectionPhase.Disabled, state.Phase);
         Assert.Equal(h.Identity.Unavailable, state.Problem);
-        AssertProblem("windows-required", () => h.Service.StartSignIn(Principal(bootstrap), bootstrap.Version, true));
+        AssertProblem("configuration-required", () => h.Service.StartSignIn(Principal(bootstrap), bootstrap.Version, true));
         await h.Service.SignOutAsync(Principal(bootstrap), bootstrap.Version);
         Assert.Equal(0, h.Identity.CacheReads);
         Assert.Equal(0, h.Identity.Clears);
@@ -459,12 +459,39 @@ public sealed class LocalConnectionServiceTests
         Assert.Equal(0, h.Calendar.Verifications);
     }
 
-    [Fact]
-    public void RealAdapterFailsClosedWhenPlatformOrConfigurationIsUnsupported()
+    [Theory]
+    [InlineData("", "")]
+    [InlineData("not-a-tenant", "11111111-1111-1111-1111-111111111111")]
+    [InlineData("11111111-1111-1111-1111-111111111111", "not-a-client")]
+    public void RealAdapterFailsClosedWhenConfigurationIsUnsupported(string tenantId, string clientId)
     {
-        using var identity = new LocalIdentityClient(Options.Create(new LocalConnectionOptions()));
-        Assert.Equal(OperatingSystem.IsWindows() ? "configuration-required" : "windows-required", identity.Unavailable?.Code);
+        using var identity = new LocalIdentityClient(Options.Create(new LocalConnectionOptions
+        {
+            TenantId = tenantId,
+            ClientId = clientId
+        }));
+        Assert.Equal("configuration-required", identity.Unavailable?.Code);
         Assert.Collection(TenantSignIn.Scopes(false), scope => Assert.Equal("Calendars.Read", scope), scope => Assert.Equal("User.Read", scope));
+    }
+
+    [Fact]
+    public async Task RealAdapterWithValidConfigurationEnablesSessionOnlyCacheOnNonWindows()
+    {
+        if (OperatingSystem.IsWindows()) { return; }
+        var path = Path.Combine(Path.GetTempPath(), "identity-session-only-" + Guid.NewGuid());
+        using (var identity = new LocalIdentityClient(Options.Create(new LocalConnectionOptions
+        {
+            TenantId = Guid.NewGuid().ToString(),
+            ClientId = Guid.NewGuid().ToString(),
+            CacheDirectory = path
+        })))
+        {
+            Assert.Null(identity.Unavailable);
+            Assert.Null(await identity.GetCachedAccountAsync(CancellationToken.None));
+            await identity.ClearAsync();
+            Assert.Null(await identity.GetCachedAccountAsync(CancellationToken.None));
+        }
+        Assert.False(Directory.Exists(path));
     }
 
     private static SourceSnapshot Snapshot(CalendarIdentity identity, string id, bool? organizer) => new(identity, id, "v1", "etag",

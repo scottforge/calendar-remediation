@@ -155,7 +155,7 @@ public sealed class ConnectionEndpointTests
         host.Harness.Identity.Clear = () => Task.FromException(new IOException("private storage diagnostic"));
         using (var failure = await host.PostAsync("signout", ("version", state.Version)))
         {
-            await AssertProblemAsync(failure, HttpStatusCode.ServiceUnavailable, "protected-cache-unavailable");
+            await AssertProblemAsync(failure, HttpStatusCode.ServiceUnavailable, "account-cache-unavailable");
             Assert.Contains(failure.Headers.GetValues("Set-Cookie"), value => value.StartsWith("CalendarRemediation.Connection=;", StringComparison.Ordinal));
         }
         using var stale = host.CreateClient(copiedCookie);
