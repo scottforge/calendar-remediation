@@ -229,6 +229,169 @@ public sealed class GateTests
         Assert.All(invalid, e => Assert.False(FeasibilityGate.Assess(e, Now, Verified).ExitAllowed));
     }
 
+    [Theory]
+    [InlineData(1, true)]
+    [InlineData(366, true)]
+    [InlineData(367, false)]
+    [InlineData(0, false)]
+    [InlineData(-1, false)]
+    public void WorkloadWindowMustBePositiveAndAtMost366Days(int days, bool expectedExit)
+    {
+        var workload = Passing().WorkloadProfile;
+        AssertWorkload(workload with { End = workload.Start.AddDays(days) }, expectedExit);
+    }
+
+    [Fact]
+    public void WorkloadWindowCannotExceed366DaysEvenByOneTick()
+    {
+        var workload = Passing().WorkloadProfile;
+        AssertWorkload(workload with { End = workload.Start.AddDays(366).AddTicks(1) }, false);
+    }
+
+    [Theory]
+    [InlineData("incomplete")]
+    [InlineData("default-start")]
+    [InlineData("zero-events")]
+    [InlineData("zero-organizer-meetings")]
+    [InlineData("organizer-meetings-exceed-events")]
+    [InlineData("zero-pages")]
+    [InlineData("detail-reads-below-events")]
+    [InlineData("negative-throttles")]
+    public void WorkloadRequiresCompleteRepresentativeCounts(string invalidField)
+    {
+        var workload = Passing().WorkloadProfile;
+        workload = invalidField switch
+        {
+            "incomplete" => workload with { Complete = false },
+            "default-start" => workload with { Start = default, End = default(DateTimeOffset).AddDays(1) },
+            "zero-events" => workload with { Events = 0 },
+            "zero-organizer-meetings" => workload with { OrganizerMeetings = 0 },
+            "organizer-meetings-exceed-events" => workload with { OrganizerMeetings = workload.Events + 1 },
+            "zero-pages" => workload with { Pages = 0 },
+            "detail-reads-below-events" => workload with { DetailReads = workload.Events - 1 },
+            "negative-throttles" => workload with { ThrottledResponses = -1 },
+            _ => throw new ArgumentException("Unexpected workload field.", nameof(invalidField))
+        };
+        AssertWorkload(workload, false);
+    }
+
+    [Theory]
+    [InlineData(0, false)]
+    [InlineData(-1, false)]
+    [InlineData(double.NaN, false)]
+    [InlineData(double.PositiveInfinity, false)]
+    [InlineData(double.NegativeInfinity, false)]
+    [InlineData(0.5, true)]
+    public void WorkloadElapsedAndReviewEffortMustEachBeFiniteAndPositive(double seconds, bool expectedExit)
+    {
+        var workload = Passing().WorkloadProfile;
+        AssertWorkload(workload with { ElapsedSeconds = seconds }, expectedExit);
+        AssertWorkload(workload with { ReviewSecondsPerMeeting = seconds }, expectedExit);
+    }
+
+    [Fact]
+    public void WorkloadRequiresMeasuredReviewEffort()
+    {
+        AssertWorkload(Passing().WorkloadProfile with { ReviewSecondsPerMeeting = null }, false);
+    }
+
+    [Theory]
+    [InlineData("events", -1, false)]
+    [InlineData("events", 0, true)]
+    [InlineData("pages", -1, false)]
+    [InlineData("pages", 0, true)]
+    [InlineData("detail-reads", -1, false)]
+    [InlineData("detail-reads", 0, true)]
+    [InlineData("runtime", -1, false)]
+    [InlineData("runtime", 0, true)]
+    public void WorkloadBudgetsMustCoverMeasuredUsage(string budget, int delta, bool expectedExit)
+    {
+        var workload = Passing().WorkloadProfile;
+        workload = budget switch
+        {
+            "events" => workload with { ProposedMaxEvents = workload.Events + delta },
+            "pages" => workload with { ProposedMaxPages = workload.Pages + delta },
+            "detail-reads" => workload with { ProposedMaxDetailReads = workload.DetailReads + delta },
+            "runtime" => workload with { ProposedRunSeconds = (int)workload.ElapsedSeconds + delta },
+            _ => throw new ArgumentException("Unexpected workload budget.", nameof(budget))
+        };
+        AssertWorkload(workload, expectedExit);
+    }
+
+    [Theory]
+    [InlineData("events", 10000, true)]
+    [InlineData("events", 10001, false)]
+    [InlineData("pages", 1000, true)]
+    [InlineData("pages", 1001, false)]
+    [InlineData("detail-reads", 10000, true)]
+    [InlineData("detail-reads", 10001, false)]
+    [InlineData("runtime", 3600, true)]
+    [InlineData("runtime", 3601, false)]
+    [InlineData("selected-writes", 0, false)]
+    [InlineData("selected-writes", 2, true)]
+    [InlineData("selected-writes", 3, false)]
+    public void WorkloadBudgetsRespectInclusivePolicyCaps(string budget, int value, bool expectedExit)
+    {
+        var workload = Passing().WorkloadProfile;
+        workload = budget switch
+        {
+            "events" => workload with { ProposedMaxEvents = value },
+            "pages" => workload with { ProposedMaxPages = value },
+            "detail-reads" => workload with { ProposedMaxDetailReads = value },
+            "runtime" => workload with { ProposedRunSeconds = value },
+            "selected-writes" => workload with { ProposedSelectedWrites = value },
+            _ => throw new ArgumentException("Unexpected workload budget.", nameof(budget))
+        };
+        AssertWorkload(workload, expectedExit);
+    }
+
+    [Theory]
+    [InlineData("missing-context")]
+    [InlineData("missing-measurements")]
+    [InlineData("unverified-measurement")]
+    [InlineData("missing-operator")]
+    [InlineData("missing-acceptance")]
+    [InlineData("future-acceptance")]
+    public void WorkloadRequiresVerifiedMeasurementsAndSignedAcceptance(string missingEvidence)
+    {
+        var workload = Passing().WorkloadProfile;
+        workload = missingEvidence switch
+        {
+            "missing-context" => workload with { MeasurementContext = " " },
+            "missing-measurements" => workload with { Measurements = [] },
+            "unverified-measurement" => workload with { Measurements = [Artifact with { Path = "unverified-workload.json" }] },
+            "missing-operator" => workload with { AcceptedBy = " " },
+            "missing-acceptance" => workload with { AcceptedAt = null },
+            "future-acceptance" => workload with { AcceptedAt = Now.AddTicks(1) },
+            _ => throw new ArgumentException("Unexpected workload evidence.", nameof(missingEvidence))
+        };
+        AssertWorkload(workload, false);
+    }
+
+    private static void AssertWorkload(WorkloadProfile workload, bool expectedExit)
+    {
+        var evidence = Passing();
+        var baseline = FeasibilityGate.Assess(evidence, Now, Verified);
+        Assert.Equal(ProductVerdict.Go, baseline.Verdict);
+        Assert.True(baseline.ExitAllowed);
+        Assert.Empty(baseline.Blockers);
+
+        // Acceptance stays at or before the fixture's human decision, except when testing future acceptance.
+        var result = FeasibilityGate.Assess(evidence with { WorkloadProfile = workload }, Now, Verified);
+        const string workloadBlocker = "Representative complete workload, review effort and accepted measured budgets are required.";
+        Assert.Equal(expectedExit ? ProductVerdict.Go : ProductVerdict.Blocked, result.Verdict);
+        Assert.Equal(expectedExit, result.ExitAllowed);
+        Assert.All(result.Gates, gate => Assert.True(gate.Passed));
+        if (expectedExit)
+        {
+            Assert.Empty(result.Blockers);
+        }
+        else
+        {
+            Assert.Contains(workloadBlocker, result.Blockers);
+        }
+    }
+
     [Fact]
     public void ArtifactImportDetectsTampering()
     {
