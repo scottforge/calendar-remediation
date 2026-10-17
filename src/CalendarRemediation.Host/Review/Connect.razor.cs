@@ -37,7 +37,7 @@ public partial class Connect : IAsyncDisposable
         {
             ConnectionPhase.Disabled => "Sign-in is unavailable with the current configuration. See Developer configuration for setup details and the reported problem.",
             ConnectionPhase.SignedOut => "Not connected. Sign in below to get started.",
-            ConnectionPhase.SigningIn => "Sign-in is in progress in the system browser.",
+            ConnectionPhase.SigningIn => "Sign-in is in progress with Microsoft. This tab will return to the connection page when sign-in is complete.",
             ConnectionPhase.AwaitingCompletion => "Finishing sign-in…",
             ConnectionPhase.Connected => "Connected to a verified mailbox with read-only access.",
             ConnectionPhase.Discovering => "Connected. Calendar discovery is running.",

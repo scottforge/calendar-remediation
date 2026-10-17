@@ -76,16 +76,16 @@ public sealed class LocalConnectionService(ILocalIdentityClient identity, ILocal
         lock (_sync) { RequireCurrent(session); return State(session); }
     }
 
-    public ConnectionTicket StartSignIn(ClaimsPrincipal principal, string version, bool interactive)
+    public ConnectionTicket StartSignIn(ClaimsPrincipal principal, string version)
     {
         lock (_sync)
         {
             Require(principal, version);
-            return BeginSignIn(interactive);
+            return BeginSignIn(null);
         }
     }
 
-    public ConnectionTicket StartBrowserSignIn(ClaimsPrincipal principal, string version)
+    public ConnectionTicket StartBrowserSignIn(ClaimsPrincipal principal, string version, Uri returnUri)
     {
         lock (_sync)
         {
@@ -99,19 +99,61 @@ public sealed class LocalConnectionService(ILocalIdentityClient identity, ILocal
             {
                 throw Stale();
             }
-            return BeginSignIn(interactive: true);
+            return BeginSignIn(returnUri);
         }
     }
 
-    private ConnectionTicket BeginSignIn(bool interactive)
+    private ConnectionTicket BeginSignIn(Uri? returnUri)
     {
         if (_clearing) { throw new ConnectionException(new("busy", "Account sign-out is still finishing. Try again shortly.")); }
         if (identity.Unavailable is { } unavailable) { throw new ConnectionException(unavailable); }
         Invalidate();
         var session = new Session { Phase = ConnectionPhase.SigningIn };
         _session = session;
-        Track(session, ct => SignInAsync(session, interactive, ct));
+        Track(session, ct => SignInAsync(session, returnUri, ct));
         return Ticket(session);
+    }
+
+    public async Task<Uri?> WaitForBrowserSignInAsync(ConnectionTicket ticket, CancellationToken cancellationToken = default)
+    {
+        Session session;
+        CancellationToken operationToken;
+        lock (_sync)
+        {
+            session = _session ?? throw Stale();
+            RequireCurrent(session);
+            if (session.Id != ticket.Id || session.Version != ticket.Version) { throw Stale(); }
+            operationToken = session.Operation?.Token ?? CancellationToken.None;
+        }
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, operationToken);
+        try
+        {
+            var uri = await session.AuthorizationUri.Task.WaitAsync(TimeSpan.FromSeconds(15), linked.Token);
+            lock (_sync)
+            {
+                RequireCurrent(session);
+                if (session.Id != ticket.Id || session.Version != ticket.Version) { throw Stale(); }
+                cancellationToken.ThrowIfCancellationRequested();
+                return !operationToken.IsCancellationRequested
+                    && session.Phase is ConnectionPhase.SigningIn or ConnectionPhase.AwaitingCompletion ? uri : null;
+            }
+        }
+        catch (Exception ex) when (ex is TimeoutException or OperationCanceledException)
+        {
+            lock (_sync)
+            {
+                if (ReferenceEquals(_session, session) && session.Phase == ConnectionPhase.SigningIn)
+                {
+                    session.Revision++;
+                    session.Problem = Problem(new OperationCanceledException());
+                    session.Phase = ConnectionPhase.Failed;
+                    session.Operation?.Cancel();
+                }
+            }
+            cancellationToken.ThrowIfCancellationRequested();
+            lock (_sync) { RequireCurrent(session); }
+            return null;
+        }
     }
 
     public ConnectionTicket Complete(ClaimsPrincipal principal, string version)
@@ -222,7 +264,6 @@ public sealed class LocalConnectionService(ILocalIdentityClient identity, ILocal
         {
             var session = Require(principal, version);
             session.Revision++;
-            session.Operation?.Cancel();
             session.Discovery = null;
             session.DiscoveryResult = null;
             session.Preview = null;
@@ -234,6 +275,8 @@ public sealed class LocalConnectionService(ILocalIdentityClient identity, ILocal
                 session.Phase = ConnectionPhase.SignedOut;
             }
             else if (session.Phase == ConnectionPhase.Discovering) { session.Phase = ConnectionPhase.Connected; }
+            // Cancellation can synchronously resume a waiter and re-enter this lock.
+            session.Operation?.Cancel();
         }
     }
 
@@ -250,9 +293,20 @@ public sealed class LocalConnectionService(ILocalIdentityClient identity, ILocal
         }
     }
 
-    private async Task SignInAsync(Session session, bool interactive, CancellationToken ct)
+    private async Task SignInAsync(Session session, Uri? returnUri, CancellationToken ct)
     {
-        var account = await identity.AuthenticateAsync(interactive, ct);
+        var browser = returnUri is null ? null : new BrowserSignInContext(returnUri, uri =>
+        {
+            lock (_sync)
+            {
+                RequireCurrent(session);
+                ct.ThrowIfCancellationRequested();
+                if (session.Phase != ConnectionPhase.SigningIn) { throw Stale(); }
+                session.AuthorizationUri.TrySetResult(uri);
+            }
+            return Task.CompletedTask;
+        });
+        var account = await identity.AuthenticateAsync(browser is not null, browser, ct);
         var mailbox = await calendar.VerifyAsync(account, tokenCt => AcquireTokenAsync(session, account, tokenCt), ct);
         lock (_sync)
         {
@@ -339,6 +393,7 @@ public sealed class LocalConnectionService(ILocalIdentityClient identity, ILocal
             }
             finally
             {
+                session.AuthorizationUri.TrySetResult(null);
                 if (entered) { _work.Release(); }
                 lock (_sync) { if (ReferenceEquals(session.Operation, source)) { session.Operation = null; } }
                 source.Dispose();
@@ -382,8 +437,10 @@ public sealed class LocalConnectionService(ILocalIdentityClient identity, ILocal
 
     private void Invalidate()
     {
-        _session?.Operation?.Cancel();
+        var session = _session;
         _session = null;
+        session?.Operation?.Cancel();
+        session?.AuthorizationUri.TrySetResult(null);
     }
 
     private static ConnectionException Stale() => new(new("stale-session", "This connection session expired or changed. Open Connect again."));
@@ -433,6 +490,7 @@ public sealed class LocalConnectionService(ILocalIdentityClient identity, ILocal
         public MeetingTimePreview? Preview { get; set; }
         public ConnectionProblem? Problem { get; set; }
         public CancellationTokenSource? Operation { get; set; }
+        public TaskCompletionSource<Uri?> AuthorizationUri { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public int Revision { get; set; }
     }
 }

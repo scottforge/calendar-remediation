@@ -24,12 +24,14 @@ public sealed record ConnectionState(string Version, ConnectionPhase Phase, stri
     VerifiedMailbox? Mailbox, ConfirmedLocation? Location, string SuggestedTimeZoneId,
     ConnectionDiscovery? Discovery, ConnectionProblem? Problem, MeetingTimePreview? Preview = null);
 
+public sealed record BrowserSignInContext(Uri ReturnUri, Func<Uri, Task> OpenBrowserAsync);
+
 // Tokens stay inside these server-side seams. They are never part of a state DTO.
 public interface ILocalIdentityClient : IDisposable
 {
     ConnectionProblem? Unavailable { get; }
     Task<string?> GetCachedAccountAsync(CancellationToken cancellationToken);
-    Task<SignInObservation> AuthenticateAsync(bool interactive, CancellationToken cancellationToken);
+    Task<SignInObservation> AuthenticateAsync(bool interactive, BrowserSignInContext? browser, CancellationToken cancellationToken);
     Task<string> AcquireReadTokenAsync(SignInObservation account, CancellationToken cancellationToken);
     Task ClearAsync();
 }

@@ -84,10 +84,7 @@ public static class ConnectionEndpoints
         {
             await IssueCookieAsync(context, connection.Bootstrap(context.User));
         });
-        MapAction(app, "signin", async (context, connection, form) =>
-        {
-            await IssueCookieAsync(context, connection.StartBrowserSignIn(context.User, form["version"].ToString()));
-        });
+        MapAction(app, "signin", BrowserSignInAsync);
         MapAction(app, "start", async (context, connection, form) =>
         {
             var mode = form["mode"].ToString();
@@ -95,7 +92,9 @@ public static class ConnectionEndpoints
             {
                 throw new ConnectionException(new("invalid-mode", "Choose browser sign-in or continue with the cached account."));
             }
-            await IssueCookieAsync(context, connection.StartSignIn(context.User, form["version"].ToString(), mode == "interactive"));
+            if (mode == "interactive") { return await BrowserSignInAsync(context, connection, form); }
+            await IssueCookieAsync(context, connection.StartSignIn(context.User, form["version"].ToString()));
+            return Results.LocalRedirect("/connect");
         });
         MapAction(app, "complete", async (context, connection, form) =>
         {
@@ -157,6 +156,14 @@ public static class ConnectionEndpoints
 
     private static void MapAction(IEndpointRouteBuilder app, string action,
         Func<HttpContext, LocalConnectionService, IFormCollection, Task> handler) =>
+        MapAction(app, action, async (context, connection, form) =>
+        {
+            await handler(context, connection, form);
+            return Results.LocalRedirect("/connect");
+        });
+
+    private static void MapAction(IEndpointRouteBuilder app, string action,
+        Func<HttpContext, LocalConnectionService, IFormCollection, Task<IResult>> handler) =>
         app.MapPost("/connection/" + action, async (HttpContext context, IAntiforgery antiforgery, LocalConnectionService connection) =>
         {
             try
@@ -172,8 +179,7 @@ public static class ConnectionEndpoints
                     return Results.BadRequest(new ConnectionProblem("invalid-form", "Submit the connection form again."));
                 }
                 var form = await context.Request.ReadFormAsync(context.RequestAborted);
-                await handler(context, connection, form);
-                return Results.LocalRedirect("/connect");
+                return await handler(context, connection, form);
             }
             catch (AntiforgeryValidationException)
             {
@@ -189,6 +195,16 @@ public static class ConnectionEndpoints
                 return Results.Json(new ConnectionProblem("account-cache-unavailable", "The account cache could not be cleared. Close other app instances and retry."), statusCode: 503);
             }
         });
+
+    private static async Task<IResult> BrowserSignInAsync(HttpContext context, LocalConnectionService connection, IFormCollection form)
+    {
+        // Request scheme, loopback Host and listener port have already passed the local request guard.
+        var returnUri = new Uri($"{context.Request.Scheme}://{context.Request.Host}/connect");
+        var ticket = connection.StartBrowserSignIn(context.User, form["version"].ToString(), returnUri);
+        await IssueCookieAsync(context, ticket);
+        var authorizationUri = await connection.WaitForBrowserSignInAsync(ticket, context.RequestAborted);
+        return authorizationUri is null ? Results.LocalRedirect("/connect") : Results.Redirect(authorizationUri.AbsoluteUri);
+    }
 
     private static Task IssueCookieAsync(HttpContext context, ConnectionTicket ticket)
     {
@@ -217,7 +233,10 @@ public static class ConnectionEndpoints
         return remote is not null && IPAddress.IsLoopback(remote) && request.Scheme == "http" && request.Host.Port == configuredPort
             && (host.Equals("localhost", StringComparison.OrdinalIgnoreCase) || host is "127.0.0.1" or "[::1]" or "::1")
             && (request.Headers.Origin.Count == 0 || SameOrigin(request.Headers.Origin.ToString(), request))
-            && request.Headers["Sec-Fetch-Site"] != "cross-site";
+            // MSAL's localhost listener returns to Connect, which can be on a different loopback host.
+            && (request.Headers["Sec-Fetch-Site"] != "cross-site"
+                || (HttpMethods.IsGet(request.Method) && request.Path == "/connect"
+                    && request.Headers["Sec-Fetch-Mode"] == "navigate" && request.Headers["Sec-Fetch-Dest"] == "document"));
     }
 
     private static bool SameOrigin(string value, HttpRequest request) => Uri.TryCreate(value, UriKind.Absolute, out var origin)

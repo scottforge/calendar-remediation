@@ -79,13 +79,38 @@ public sealed class TenantSignIn : IDisposable
 
     public static string[] Scopes(bool write) => [write ? "Calendars.ReadWrite" : "Calendars.Read", "User.Read"];
 
-    public async Task<SignInObservation> SignInAsync(bool write, CancellationToken ct = default)
+    public async Task<SignInObservation> SignInAsync(bool write, BrowserSignInContext browser, CancellationToken ct = default)
     {
+        ArgumentNullException.ThrowIfNull(browser);
+        var returnUri = browser.ReturnUri;
+        if (!returnUri.IsAbsoluteUri || returnUri.Scheme != "http" || !returnUri.IsLoopback
+            || returnUri.UserInfo.Length != 0 || returnUri.AbsolutePath != "/connect"
+            || returnUri.Query.Length != 0 || returnUri.Fragment.Length != 0)
+        {
+            throw new ArgumentException("Browser sign-in must return to the local Connect page.", nameof(browser));
+        }
         await _operations.WaitAsync(ct);
         try
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
             var result = await _application.AcquireTokenInteractive(Scopes(write)).WithUseEmbeddedWebView(false)
+                .WithSystemWebViewOptions(new SystemWebViewOptions
+                {
+                    OpenBrowserAsync = uri =>
+                    {
+                        ct.ThrowIfCancellationRequested();
+                        if (!uri.IsAbsoluteUri || uri.Scheme != "https" || !uri.IsDefaultPort
+                            || uri.Host != "login.microsoftonline.com" || uri.UserInfo.Length != 0)
+                        {
+                            throw new InvalidOperationException("Unexpected Microsoft authorization authority.");
+                        }
+                        return browser.OpenBrowserAsync(uri);
+                    },
+                    // MSAL serves this HTML from its loopback listener before token/account validation finishes.
+                    HtmlMessageSuccess = "<!doctype html><html><head><meta charset=\"utf-8\"><meta http-equiv=\"refresh\" content=\"0;url="
+                        + System.Net.WebUtility.HtmlEncode(returnUri.AbsoluteUri)
+                        + "\"><title>Returning to Connect</title></head><body>Returning to Connect.</body></html>"
+                })
                 .WithPrompt(Prompt.SelectAccount).ExecuteAsync(ct);
             try { Validate(result); }
             catch

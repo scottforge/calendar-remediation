@@ -29,12 +29,13 @@ public sealed class LocalIdentityClient : ILocalIdentityClient
 
     public Task<string?> GetCachedAccountAsync(CancellationToken cancellationToken) => Client().GetCachedAccountAsync(cancellationToken);
 
-    public async Task<SignInObservation> AuthenticateAsync(bool interactive, CancellationToken cancellationToken)
+    public async Task<SignInObservation> AuthenticateAsync(bool interactive, BrowserSignInContext? browser, CancellationToken cancellationToken)
     {
         if (!interactive) { return await Client().ContinueAsync(cancellationToken); }
+        ArgumentNullException.ThrowIfNull(browser);
         // This onboarding flow is deliberately a single-account, read-only cache.
         await Client().ClearAsync();
-        return await Client().SignInAsync(write: false, cancellationToken);
+        return await Client().SignInAsync(write: false, browser, cancellationToken);
     }
 
     public Task<string> AcquireReadTokenAsync(SignInObservation account, CancellationToken cancellationToken) =>

@@ -44,10 +44,10 @@
                 <section class="panel connection-card" aria-labelledby="setup-heading">
                     <h2 id="setup-heading">1. Account</h2>
                     <p>Sign-in is unavailable with the current configuration. See Developer configuration for setup details and the reported problem.</p>
-                    <button type="button" class="primary" disabled>Sign in with browser</button>
+                    <button type="button" class="primary" disabled>Sign in with Microsoft</button>
                     <details class="connection-setup">
                         <summary>Developer configuration</summary>
-                        <p>Configure a Microsoft Entra public-client registration with the <code>http://localhost</code> loopback callback and enable system-browser sign-in. Set <code>LocalConnection__TenantId</code> and <code>LocalConnection__ClientId</code> to the registration's GUIDs, then restart the app. No client secret is needed.</p>
+                        <p>Configure a Microsoft Entra public-client registration with the <code>http://localhost</code> loopback callback. Set <code>LocalConnection__TenantId</code> and <code>LocalConnection__ClientId</code> to the registration's GUIDs, then restart the app. No client secret is needed.</p>
                         <p>Open the localhost address printed at startup. Windows protects the persistent account cache. Other platforms keep tokens in memory, so restarting requires sign-in again.</p>
                         @if (state.Problem is { } setupProblem)
                         {
@@ -65,7 +65,7 @@
                     <form method="post" action="/connection/signin" data-enhance="false">
                         <AntiforgeryToken />
                         <input type="hidden" name="version" value="@state.Version" />
-                        <button type="submit" class="primary">Sign in with browser</button>
+                        <button type="submit" class="primary">Sign in with Microsoft</button>
                     </form>
                 </section>
             }
@@ -75,7 +75,7 @@
                     <h2 id="identity-heading">1. Account</h2>
                     @if (state.Phase == ConnectionPhase.SigningIn)
                     {
-                        <p>Finish signing in in the browser window that opened. This page will continue automatically.</p>
+                        <p>Finish signing in with Microsoft in this tab. You will return here automatically.</p>
                         <p>Checking your account and calendar may take a moment.</p>
                     }
                     else if (state.Phase == ConnectionPhase.AwaitingCompletion)
@@ -116,7 +116,7 @@
                             <form method="post" action="/connection/signin" data-enhance="false">
                                 <AntiforgeryToken />
                                 <input type="hidden" name="version" value="@state.Version" />
-                                <button type="submit" class="primary">Sign in with browser</button>
+                                <button type="submit" class="primary">Sign in with Microsoft</button>
                             </form>
                         }
                         @if (state.Phase is ConnectionPhase.SigningIn or ConnectionPhase.AwaitingCompletion or ConnectionPhase.Discovering)
