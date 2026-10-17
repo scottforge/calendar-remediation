@@ -119,6 +119,27 @@ public static class PlanApproval
     public static ApprovalDecision Validate(RemediationPlan plan, Approval approval, DateTimeOffset now,
         DecisionDependencies currentDependencies)
     {
+        var binding = ValidateBinding(plan, approval);
+        if (!binding.Valid) { return binding; }
+        var reasons = ImmutableArray.CreateBuilder<string>();
+        if (now < approval.ApprovedAt || now >= approval.ExpiresAt || now >= plan.Content.ExpiresAt)
+        {
+            reasons.Add("approval-expired-or-not-yet-valid");
+        }
+        if (plan.Content.Items.Where(i => approval.SelectedItemIds.Contains(i.Id)).Any(i => i.Dependencies != currentDependencies))
+        {
+            reasons.Add("decision-dependencies-changed");
+        }
+        if (plan.Content.Items.Where(i => approval.SelectedItemIds.Contains(i.Id)).Any(i => !PlanBuilder.CanSelect(i, now, plan.Content.Scope)))
+        {
+            reasons.Add("item-not-executable");
+        }
+        return new(reasons.Count == 0, reasons.ToImmutable());
+    }
+
+    // Recovery requires the original exact authorization, not permission to dispatch again.
+    internal static ApprovalDecision ValidateBinding(RemediationPlan plan, Approval approval)
+    {
         var reasons = ImmutableArray.CreateBuilder<string>();
         if (!PlanBuilder.IsIntact(plan) || plan.Digest != approval.Digest || plan.Content.Id != approval.PlanId)
         {
@@ -131,16 +152,13 @@ public static class PlanApproval
             reasons.Add("invalid-selection-or-operator");
             return new(false, reasons.ToImmutable());
         }
-        if (now < approval.ApprovedAt || approval.ApprovedAt < plan.Content.CreatedAt || now >= approval.ExpiresAt
-            || now >= plan.Content.ExpiresAt || approval.ExpiresAt > plan.Content.ExpiresAt || approval.ExpiresAt <= approval.ApprovedAt)
+        if (approval.ApprovedAt < plan.Content.CreatedAt
+            || approval.ExpiresAt > plan.Content.ExpiresAt || approval.ExpiresAt <= approval.ApprovedAt)
         {
             reasons.Add("approval-expired-or-not-yet-valid");
         }
-        if (plan.Content.Items.Where(i => approval.SelectedItemIds.Contains(i.Id)).Any(i => i.Dependencies != currentDependencies))
-        {
-            reasons.Add("decision-dependencies-changed");
-        }
-        if (plan.Content.Items.Where(i => approval.SelectedItemIds.Contains(i.Id)).Any(i => !PlanBuilder.CanSelect(i, now, plan.Content.Scope)))
+        if (plan.Content.Items.Where(i => approval.SelectedItemIds.Contains(i.Id))
+            .Any(i => !PlanBuilder.CanSelect(i, approval.ApprovedAt, plan.Content.Scope)))
         {
             reasons.Add("item-not-executable");
         }

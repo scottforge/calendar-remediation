@@ -48,7 +48,7 @@ public interface IExecutionControl
     bool StopRequested { get; }
 }
 public sealed record ExecutionRequest(RemediationPlan Plan, Approval Approval,
-    DecisionDependencies CurrentDependencies, WriteAdmission? Admission, DateTimeOffset Now);
+    DecisionDependencies CurrentDependencies, WriteAdmission? Admission);
 
 // One call may dispatch each selected item at most once. Recovery never blindly replays intent.
 public sealed class PlanExecutor(ICalendarReader reader, ICalendarWriter writer, IExecutionJournal journal,
@@ -70,10 +70,9 @@ public sealed class PlanExecutor(ICalendarReader reader, ICalendarWriter writer,
 
     private async Task<ImmutableArray<ExecutionResult>> ExecuteLockedAsync(ExecutionRequest request, CancellationToken ct)
     {
-        var startedAt = clock.GetTimestamp();
-        DateTimeOffset Now() => request.Now.Add(clock.GetElapsedTime(startedAt, clock.GetTimestamp()));
-        var selected = request.Plan.Content.Items.Where(i => request.Approval.SelectedItemIds.Contains(i.Id)).ToArray();
-        if (!PlanApproval.Validate(request.Plan, request.Approval, Now(), request.CurrentDependencies).Valid)
+        var selected = request.Plan.Content.Items.Where(i => !request.Approval.SelectedItemIds.IsDefault
+            && request.Approval.SelectedItemIds.Contains(i.Id)).ToArray();
+        if (!PlanApproval.ValidateBinding(request.Plan, request.Approval).Valid)
         {
             return [.. selected.Select(i => Result(i, ExecutionOutcome.Blocked, "approval-invalid"))];
         }
@@ -102,7 +101,12 @@ public sealed class PlanExecutor(ICalendarReader reader, ICalendarWriter writer,
                 results.Add(Result(item, ExecutionOutcome.Paused, "execution-paused"));
                 continue;
             }
-            var decision = await ExecuteFreshItemAsync(request, item, Now, ct).ConfigureAwait(false);
+            if (!PlanApproval.Validate(request.Plan, request.Approval, clock.GetUtcNow(), request.CurrentDependencies).Valid)
+            {
+                results.Add(Result(item, ExecutionOutcome.Blocked, "approval-invalid"));
+                continue;
+            }
+            var decision = await ExecuteFreshItemAsync(request, item, clock.GetUtcNow, ct).ConfigureAwait(false);
             batch = decision.Batch;
             results.Add(decision.ToResult(item));
         }
