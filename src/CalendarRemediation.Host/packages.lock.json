@@ -2,6 +2,12 @@
   "version": 1,
   "dependencies": {
     "net10.0": {
+      "LucideBlazor": {
+        "type": "Direct",
+        "requested": "[1.0.6, )",
+        "resolved": "1.0.6",
+        "contentHash": "JosUAl/iTNT3gCrRd3v9RitDKTNdW6uydghBu9NBwmaxiXA58ziO6jUxXXpWAJCF6mdWMn/pwzu+zEvqhVzLsA=="
+      },
       "Microsoft.AspNetCore.App.Internal.Assets": {
         "type": "Direct",
         "requested": "[10.0.12, )",
