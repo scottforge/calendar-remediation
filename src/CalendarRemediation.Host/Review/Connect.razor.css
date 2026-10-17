@@ -17,8 +17,8 @@ a { color: #235bc3; }
 .connection-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 20px; }
 .connection-hint, .connection-footer { color: #526781; font-size: 14px; }
 .location-fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; margin: 20px 0; }
-.location-fields label { display: block; font-weight: 600; margin-bottom: 8px; }
-.location-fields input, .location-fields select { box-sizing: border-box; width: 100%; min-height: 44px; border: 1px solid #9bacc2; border-radius: 8px; padding: 10px; font: inherit; color: inherit; background: #fff; }
+.location-fields label, .preview-fields label { display: block; font-weight: 600; margin-bottom: 8px; overflow-wrap: anywhere; }
+.location-fields input, .location-fields select, .preview-fields input, .preview-fields select { box-sizing: border-box; width: 100%; min-width: 0; min-height: 44px; border: 1px solid #9bacc2; border-radius: 8px; padding: 10px; font: inherit; color: inherit; background: #fff; }
 button { min-height: 44px; white-space: normal; padding: 11px 17px; border-radius: 7px; border: 1px solid transparent; font-weight: 600; }
 .primary { background: var(--color-primary, #326bd9); color: #fff; }
 .primary:hover:not(:disabled) { background: #2159c6; }
@@ -34,9 +34,20 @@ td { overflow-wrap: anywhere; min-width: 120px; }
 td:last-child { min-width: 60px; }
 :is(a, button, input, select, .meeting-scroll):focus-visible { outline: 3px solid #326bd9; outline-offset: 3px; }
 .connection-footer { margin-top: 28px; }
+.meeting-preview { margin-top: 28px; padding-top: 12px; border-top: 1px solid #e0e8f2; min-width: 0; }
+.preview-fields { display: grid; gap: 18px; min-width: 0; margin: 20px 0; padding: 0; border: 0; }
+.preview-fields legend { font-weight: 600; padding: 0 0 16px; overflow-wrap: anywhere; }
+.preview-fields > div { min-width: 0; }
+.preview-fields button { justify-self: start; max-width: 100%; }
+.preview-result { padding: 18px; border: 1px solid #c8d9f4; border-radius: 10px; background: #eef4ff; }
+.preview-times { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; line-height: 1.6; }
+.preview-times dt { font-weight: 600; }
+.preview-times dd { margin: 4px 0 0; overflow-wrap: anywhere; }
+.preview-times dd span { color: #526781; }
 @media (max-width: 760px) {
     .connection-shell { padding: 18px 16px 32px; }
     .connection-card { padding: 20px; }
     .location-fields { grid-template-columns: 1fr; }
     .connection-header { flex-wrap: wrap; }
+    .preview-times { grid-template-columns: 1fr; }
 }

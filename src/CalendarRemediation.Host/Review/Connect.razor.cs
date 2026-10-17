@@ -19,6 +19,7 @@ public partial class Connect : IAsyncDisposable
     private string _province = "";
     private string _community = "";
     private string _timeZoneId = "";
+    private string _previewMode = "";
     private bool _disposed;
 
     private IEnumerable<string> AvailableZones => LocalConnectionService.LocationZones.TryGetValue(_province, out var zones)
@@ -77,6 +78,7 @@ public partial class Connect : IAsyncDisposable
                 _province = next.Location?.Province ?? "";
                 _community = next.Location?.Community ?? "";
                 _timeZoneId = next.Location?.TimeZoneId ?? "";
+                _previewMode = "";
             }
             // Replace the entire snapshot, including when an old circuit receives an empty version.
             _state = next;
@@ -88,6 +90,7 @@ public partial class Connect : IAsyncDisposable
             LogRefreshFailure(Logger, ex);
             _state = null;
             _province = _community = _timeZoneId = "";
+            _previewMode = "";
             _refreshError = "Unable to check the current session. Reload this page before taking further action.";
         }
     }
@@ -112,6 +115,13 @@ public partial class Connect : IAsyncDisposable
 
     private static string FormatUtc(DateTimeOffset? value) => value?.UtcDateTime.ToString("yyyy-MM-dd HH:mm 'UTC'", CultureInfo.InvariantCulture)
         ?? "Not supplied";
+
+    private static string FormatLocal(DateTimeOffset? value, string timeZoneId)
+    {
+        if (value is not { } instant) { return "Not supplied"; }
+        if (!TimeZoneInfo.TryFindSystemTimeZoneById(timeZoneId, out var zone)) { return "Local rules unavailable"; }
+        return TimeZoneInfo.ConvertTime(instant, zone).ToString("yyyy-MM-dd HH:mm zzz", CultureInfo.InvariantCulture);
+    }
 
     public async ValueTask DisposeAsync()
     {

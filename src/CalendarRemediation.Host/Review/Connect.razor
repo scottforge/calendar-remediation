@@ -1,28 +1,29 @@
+@page "/"
 @page "/connect"
 @layout CalendarRemediation.Host.Review.Connect.ConnectionLayout
 @using CalendarRemediation.Host.Authentication
 @using Microsoft.AspNetCore.Components.Forms
 @using Microsoft.AspNetCore.Components.Web
 
-<PageTitle>Connect Microsoft 365 · Calendar Remediation</PageTitle>
+<PageTitle>Live calendar preview · Calendar Remediation</PageTitle>
 <a class="skip-link" href="#connection-content">Skip to connection</a>
 <div class="connection-shell">
     <header class="connection-header">
-        <a href="/" data-enhance-nav="false"><AppIcon Name="AppIconName.Back" /> Workspace</a>
+        <a href="/demo" data-enhance-nav="false">Synthetic demo workspace</a>
         <span class="status-badge neutral">LIVE · READ ONLY</span>
     </header>
     <main id="connection-content" tabindex="-1">
         <div class="page-heading">
             <div>
                 <p class="eyebrow">LOCAL CONNECTION</p>
-                <h1>Connect Microsoft 365</h1>
-                <p>Read your calendar separately from the review workspace.</p>
+                <h1>Live calendar preview</h1>
+                <p>Connect Microsoft 365, discover organizer meetings, then explore an intended meeting time.</p>
             </div>
         </div>
         <div class="connection-notice">
             <strong>This is live, read-only data.</strong>
             Sign-in requests User.Read and Calendars.Read. No meetings are changed, no invitations are sent,
-            and no meeting data is sent to a model. Workspace choices do not apply here.
+            and no meeting data is sent to a model. Synthetic demo choices do not apply here.
         </div>
         <p role="status" aria-live="polite" aria-atomic="true">@StatusText</p>
         @if (_refreshError is not null)
@@ -167,7 +168,7 @@
                     </section>
                     <section class="panel connection-card" aria-labelledby="discovery-heading">
                         <h2 id="discovery-heading">Read the next 90 days</h2>
-                        <p>Read the verified default calendar, then list discovered meetings you organize. This does not create a correction plan or enable calendar writes.</p>
+                        <p>Read the verified default calendar, then list discovered meetings you organize. You can calculate a hypothetical time preview below.</p>
                         <form method="post" action="/connection/discover" data-enhance="false">
                             <AntiforgeryToken />
                             <input type="hidden" name="version" value="@state.Version" />
@@ -216,6 +217,67 @@
                                         </tbody>
                                     </table>
                                 </div>
+                            }
+                            @if (state.Location is { } previewLocation && !discovery.OrganizerMeetings.IsEmpty)
+                            {
+                                <section class="meeting-preview" aria-labelledby="preview-heading">
+                                    <h3 id="preview-heading">Explore an intended meeting time</h3>
+                                    <p>This is a hypothetical, read-only proposal using machine-installed time-zone rules. It does not confirm special policy adoption or provider rule adoption. Your calendar stays unmodified.</p>
+                                    <p id="preview-snapshot-help" class="connection-hint">Source times come from the last discovery, not a fresh calendar read. Refresh discovery to review newer calendar data. Recurring, all-day, or otherwise unsupported meetings may return an unsupported result.</p>
+                                    <p>Confirmed location: <strong>@previewLocation.Community, @previewLocation.Province</strong><br />Preview time zone: <strong>@previewLocation.TimeZoneId</strong></p>
+                                    <form method="post" action="/connection/preview" data-enhance="false">
+                                        <AntiforgeryToken />
+                                        <input type="hidden" name="version" value="@state.Version" />
+                                        <input type="hidden" name="timeZoneId" value="@previewLocation.TimeZoneId" />
+                                        <fieldset class="preview-fields" disabled="@(state.Phase != ConnectionPhase.Connected || !discovery.Complete)">
+                                            <legend>State your intent for one discovered meeting</legend>
+                                            <div>
+                                                <label for="preview-event">Organizer meeting (current local start, UTC and identity)</label>
+                                                <select id="preview-event" name="eventId" required aria-describedby="preview-snapshot-help">
+                                                    <option value="">Choose a meeting</option>
+                                                    @foreach (var meeting in discovery.OrganizerMeetings)
+                                                    {
+                                                        <option value="@meeting.Id">@FormatLocal(meeting.Start, previewLocation.TimeZoneId) · @FormatUtc(meeting.Start) · @meeting.Kind · ID @meeting.Id</option>
+                                                    }
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <label for="preview-mode">What should the preview preserve?</label>
+                                                <select id="preview-mode" name="mode" required @bind="_previewMode" aria-describedby="preview-intent-help">
+                                                    <option value="">Choose preservation intent</option>
+                                                    <option value="local">Use my intended local date and time</option>
+                                                    <option value="instant">Keep the existing absolute instant</option>
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <label for="preview-local-start">Intended local start in @previewLocation.TimeZoneId</label>
+                                                <input id="preview-local-start" name="localStart" type="datetime-local" step="60" required="@(_previewMode == "local")" disabled="@(_previewMode != "local")" aria-describedby="preview-intent-help" />
+                                            </div>
+                                            <p id="preview-intent-help" class="connection-hint">For local-time mode, enter the date and time you intend in the confirmed zone. This states your desired time, not an inference about the original meeting or your device settings. Keeping the absolute instant needs no date input.</p>
+                                            <button type="submit" class="primary" disabled="@(state.Phase != ConnectionPhase.Connected || !discovery.Complete)">Calculate read-only preview</button>
+                                        </fieldset>
+                                    </form>
+                                    @if (!discovery.Complete)
+                                    {
+                                        <p>Complete discovery is required before calculating a preview.</p>
+                                    }
+                                    @if (state.Preview is { } preview)
+                                    {
+                                        <section class="preview-result" aria-labelledby="preview-result-heading">
+                                            <h3 id="preview-result-heading">Last submitted hypothetical preview: @preview.Disposition</h3>
+                                            <p>@preview.Reason</p>
+                                            <p class="connection-hint">Changing the form does not recalculate this result. Submit again to preview another choice.</p>
+                                            <p>Times shown in <strong>@preview.TimeZoneId</strong> and UTC. A missing proposed time does not mean no change is needed.</p>
+                                            <dl class="preview-times">
+                                                <div><dt>Source start</dt><dd>@FormatLocal(preview.CurrentStart, preview.TimeZoneId)<br /><span>@FormatUtc(preview.CurrentStart)</span></dd></div>
+                                                <div><dt>Source end</dt><dd>@FormatLocal(preview.CurrentEnd, preview.TimeZoneId)<br /><span>@FormatUtc(preview.CurrentEnd)</span></dd></div>
+                                                <div><dt>Proposed start</dt><dd>@FormatLocal(preview.ProposedStart, preview.TimeZoneId)<br /><span>@FormatUtc(preview.ProposedStart)</span></dd></div>
+                                                <div><dt>Proposed end</dt><dd>@FormatLocal(preview.ProposedEnd, preview.TimeZoneId)<br /><span>@FormatUtc(preview.ProposedEnd)</span></dd></div>
+                                            </dl>
+                                            <p class="connection-hint">Read-only calculation only. No calendar changes or invitations have been sent.</p>
+                                        </section>
+                                    }
+                                </section>
                             }
                         }
                     </section>
