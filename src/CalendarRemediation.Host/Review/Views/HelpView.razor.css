@@ -1,13 +1,4 @@
-.help-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 23px; }
-.help-card { padding: var(--space-panel); }
-.help-card p, .help-card ol { color: #637d9f; font-size: 13px; line-height: 1.9; }
-.help-card ol { padding-left: 20px; }
-.help-card li { padding: 5px 0; }
-.help-card .status-badge { margin-top: 17px; }
-.text-link { font-size: 12px; font-weight: 600; text-decoration: none; }
-@media (max-width: 950px) {
-    .help-grid { grid-template-columns: 1fr; }
-}
-@media (max-width: 700px) {
-    .help-card { padding: 23px; }
-}
+.help-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 22px; }
+.help-card { padding: 26px; }
+.help-card p { color: #60738e; font-size: 13px; }
+@media(max-width:950px) { .help-grid { grid-template-columns: 1fr; } }

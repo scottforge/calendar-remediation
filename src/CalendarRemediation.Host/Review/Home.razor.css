@@ -3,13 +3,13 @@
 .wordmark { display: flex; align-items: center; gap: 12px; color: #203958; text-decoration: none; font-size: 21px; font-weight: 750; letter-spacing: -.7px; line-height: 1.1; padding: 0 9px; }
 .wordmark small { display: block; font-size: 15px; font-weight: 500; letter-spacing: .4px; margin-top: 4px; }
 .brand-icon { width: 40px; height: 43px; border-radius: 12px; color: #fff; background: #326be0; font-size: 27px; letter-spacing: -4px; padding: 4px 8px 0 5px; font-weight: 500; }
-.workspace-label { font-size: 10px; letter-spacing: 1.8px; color: #687d99; font-weight: 700; margin: 54px 14px 15px; }
+.workspace-label { font-size: 12px; letter-spacing: 1.8px; color: #687d99; font-weight: 700; margin: 54px 14px 15px; }
 nav { display: grid; gap: 7px; }
 .nav-item { display: flex; align-items: center; gap: 11px; border: 0; border-radius: 9px; background: transparent; text-align: left; width: 100%; padding: 12px 13px; color: #63728b; font-size: 13px; font-weight: 600; }
 .nav-item:hover { background: #f1f5fc; color: #285dcc; }
 .nav-item.active { background: #eaf1ff; color: #2761d1; }
 .nav-item > span { width: 21px; font-size: 21px; line-height: 1; text-align: center; font-weight: 400; }
-.nav-item small { margin-left: auto; padding: 0 7px; background: #dce8ff; border-radius: 5px; font-size: 11px; }
+.nav-item small { margin-left: auto; padding: 0 7px; background: #dce8ff; border-radius: 5px; font-size: 12px; }
 .sidebar-bottom { margin-top: auto; padding-top: 50px; }
 .sidebar-tip { background: #f5f8fe; border: 1px solid #e6edf9; border-radius: 12px; padding: 17px 14px; margin: 0 3px 23px; font-size: 12px; }
 .sidebar-tip > span { display: block; font-size: 28px; color: #608ce3; margin-bottom: 7px; }
@@ -17,22 +17,22 @@ nav { display: grid; gap: 7px; }
 .sidebar-tip p { color: #657790; margin: 6px 0 0; line-height: 1.7; }
 .profile { border-top: 1px solid #e9eef5; display: flex; align-items: center; gap: 10px; padding: 22px 3px 0; margin-top: 17px; }
 .profile strong { display: block; font-size: 12px; }
-.profile small { display: block; color: #687a93; font-size: 10px; }
-.demo-small { margin-left: auto; font-size: 8px; letter-spacing: .7px; color: #5d7190; background: #f0f4fa; padding: 3px 5px; border-radius: 4px; }
+.profile small { display: block; color: #687a93; font-size: 12px; }
+.demo-small { margin-left: auto; font-size: 12px; letter-spacing: .7px; color: #5d7190; background: #f0f4fa; padding: 3px 5px; border-radius: 4px; }
 .main-shell { min-width: 0; }
 .topbar { height: 80px; border-bottom: 1px solid #e1e9f3; padding: 0 40px; display: flex; align-items: center; justify-content: space-between; gap: 15px; font-size: 12px; background: #f9fbfe; }
 .topbar > div > span:first-child { color: #71829a; }
 .crumb-divider { margin: 0 16px; color: #9baec7; }
 .topbar strong { font-weight: 550; }
-.session-pill { background: #fff; border: 1px solid #e0e7f1; padding: 6px 12px; border-radius: 20px; font-size: 11px; color: #607087; white-space: nowrap; }
+.session-pill { background: #fff; border: 1px solid #e0e7f1; padding: 6px 12px; border-radius: 20px; font-size: 12px; color: #607087; white-space: nowrap; }
 .content { max-width: 1460px; margin: auto; padding: 28px 40px 0; }
-.demo-banner { display: flex; align-items: center; gap: 11px; background: #e9f1fd; border: 1px solid #dbe7f9; border-radius: 9px; padding: 11px 15px; color: #546e96; font-size: 11px; }
+.demo-banner { display: flex; align-items: center; gap: 11px; background: #e9f1fd; border: 1px solid #dbe7f9; border-radius: 9px; padding: 11px 15px; color: #546e96; font-size: 12px; }
 .demo-banner p { margin: 0; flex: 1; }
 .demo-banner strong { color: #3a5b8d; font-weight: 650; }
-.banner-icon { border: 1px solid #7091c4; color: #587db7; width: 16px; height: 16px; border-radius: 50%; text-align: center; line-height: 15px; font-family: Georgia, serif; font-weight: 700; flex-shrink: 0; }
-.demo-banner .text-button { font-size: 11px; white-space: nowrap; }
+.banner-icon { color: #587db7; font-size: 16px; width: 16px; height: 16px; flex-shrink: 0; }
+.demo-banner .text-button { font-size: 12px; white-space: nowrap; }
 .feedback { margin-top: 16px; background: #eef8f2; border: 1px solid #cbe6d7; color: #24614a; padding: 12px 16px; border-radius: 9px; font-size: 13px; }
-.workspace-footer { display: flex; align-items: center; justify-content: space-between; gap: 15px; border-top: 1px solid #e1e9f4; padding: 22px 0; margin-top: 38px; font-size: 10px; color: #7287a5; }
+.workspace-footer { display: flex; align-items: center; justify-content: space-between; gap: 15px; border-top: 1px solid #e1e9f4; padding: 22px 0; margin-top: 38px; font-size: 12px; color: #7287a5; }
 .workspace-footer > span:first-child { font-weight: 550; }
 
 @media (min-width: 1550px) {
@@ -49,7 +49,7 @@ nav { display: grid; gap: 7px; }
     .wordmark { font-size: 17px; gap: 9px; padding: 0; }
     .wordmark small { font-size: 12px; }
     .brand-icon { width: 34px; height: 37px; font-size: 24px; }
-    .nav-item { font-size: 11px; padding-left: 8px; padding-right: 8px; gap: 7px; }
+    .nav-item { font-size: 12px; padding-left: 8px; padding-right: 8px; gap: 7px; }
     .profile { flex-wrap: wrap; }
     .demo-small { display: none; }
     .demo-banner { align-items: flex-start; flex-wrap: wrap; }
@@ -66,14 +66,14 @@ nav { display: grid; gap: 7px; }
     nav { grid-template-columns: 1fr 1fr; gap: 5px; margin-top: 20px; }
     .nav-item { font-size: 12px; padding: 10px 12px; }
     .sidebar-bottom { padding-top: 6px; margin: 0; }
-    .sidebar-bottom .nav-item { font-size: 11px; justify-content: center; }
+    .sidebar-bottom .nav-item { font-size: 12px; justify-content: center; }
     .sidebar-bottom .nav-item > span { font-size: 16px; }
-    .topbar { height: 55px; padding: 0 20px; font-size: 10px; }
+    .topbar { height: auto; min-height: 55px; padding: 8px 20px; font-size: 12px; }
     .crumb-divider { margin: 0 10px; }
-    .session-pill { font-size: 9px; padding: 4px 8px; }
+    .session-pill { font-size: 12px; padding: 4px 8px; }
     .content { padding: 20px 17px 0; }
-    .demo-banner { padding: 12px; font-size: 10px; }
-    .demo-banner .text-button { font-size: 10px; }
-    .workspace-footer { margin-top: 27px; font-size: 9px; align-items: flex-start; }
+    .demo-banner { padding: 12px; font-size: 12px; }
+    .demo-banner .text-button { font-size: 12px; }
+    .workspace-footer { margin-top: 27px; font-size: 12px; align-items: flex-start; }
     .workspace-footer > span:last-child { max-width: 150px; text-align: right; }
 }

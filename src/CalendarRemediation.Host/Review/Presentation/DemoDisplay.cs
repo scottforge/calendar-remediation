@@ -18,7 +18,7 @@ public static class DemoDisplay
     public static string StatusLabel(DemoMeeting meeting) => meeting.Intent switch
     {
         DemoIntent.Local => "Keep local time",
-        DemoIntent.Instant => "Keep instant",
+        DemoIntent.Instant => "Keep worldwide time",
         DemoIntent.Skip => "Skipped",
         _ => "Needs review"
     };
@@ -30,8 +30,8 @@ public static class DemoDisplay
     };
     public static string IntentNote(DemoIntent intent) => intent switch
     {
-        DemoIntent.Local => "Your demo confirmation: preserve local start. This enters the preview as a time update.",
-        DemoIntent.Instant => "Your demo confirmation: preserve the absolute instant. This enters the preview as a no-change decision.",
+        DemoIntent.Local => "Preserve the source local time using the comparison offset. Only selected meetings enter the preview. Equal offsets mean no stored change.",
+        DemoIntent.Instant => "Keep the same worldwide moment. If selected, this enters the preview as a no-change decision.",
         DemoIntent.Skip => "Skipped by you. This meeting is excluded from approval and simulation.",
         _ => "No confirmed intent. The comparison shows no update, and this meeting stays outside the batch."
     };

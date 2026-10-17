@@ -1,0 +1,56 @@
+<section class="welcome" aria-labelledby="welcome-title">
+    <div class="page-heading">
+        <div>
+            <p class="eyebrow">YOUR MEETINGS, AT THE TIME YOU INTEND</p>
+            <h1 id="welcome-title">A time change shouldn't<br />change your intent.</h1>
+            <p>Some meetings belong at the same local time.<br />Others need to stay at the same worldwide moment. You decide which.</p>
+        </div>
+    </div>
+    <div class="welcome-hero panel">
+        <div>
+            <span class="status-badge blue">MEETING REVIEW</span>
+            <h2>Choose what stays the same</h2>
+            <p>Review six organizer meetings. Choose a community, compare time choices, and approve the exact batch for simulation.</p>
+            <button class="primary" data-testid="start-sample" @onclick="OnStart">
+            Review meetings <span aria-hidden="true"><AppIcon Name="AppIconName.Next" /></span>
+            </button>
+            <p class="fine-print">No sign-in needed. Nothing is saved permanently.</p>
+        </div>
+        <div class="time-story" aria-label="Example of two time choices">
+            <span>MONDAY · NOVEMBER 9</span>
+            <strong>9:00 AM</strong>
+            <p>Keep the familiar local time?</p>
+            <span class="story-divider">OR</span>
+            <strong>8:00 AM</strong>
+            <p>Keep the meeting's worldwide moment?</p>
+            <small>Vancouver comparison. Review exact dates and offsets before approval.</small>
+        </div>
+    </div>
+    <div class="welcome-steps">
+        <article>
+            <span>01 · CHOOSE</span>
+            <h3>Confirm your location</h3>
+            <p>Choose a community in BC, AB, SK or MB to compare local times.</p>
+        </article>
+        <article>
+            <span>02 · REVIEW</span>
+            <h3>Find the right time</h3>
+            <p>Use guided review, rule-based suggestions or express selection over the same complete list.</p>
+        </article>
+        <article>
+            <span>03 · SIMULATE</span>
+            <h3>Approve the exact batch</h3>
+            <p>Check every local and UTC time, then review the simulated results.</p>
+        </article>
+    </div>
+    <div class="detail-actions">
+        <button class="secondary" @onclick="OnAccount">Account &amp; AI status</button>
+    <button class="text-button" @onclick="OnHelp">How review works <AppIcon Name="AppIconName.Next" /></button>
+    </div>
+</section>
+
+@code {
+    [Parameter] public EventCallback OnStart { get; set; }
+    [Parameter] public EventCallback OnAccount { get; set; }
+    [Parameter] public EventCallback OnHelp { get; set; }
+}

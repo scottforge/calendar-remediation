@@ -1,0 +1,56 @@
+<div class="page-heading">
+    <div>
+        <p class="eyebrow">CONNECTIONS &amp; PREFERENCES</p>
+        <h1>Account &amp; AI</h1>
+        <p>Manage assistance and open the separate, read-only Microsoft 365 connection.</p>
+    </div>
+</div>
+<div class="account-grid">
+    <section class="panel account-card" aria-labelledby="account-heading">
+        <span class="status-badge neutral">NO ACCOUNT IN WORKSPACE</span>
+        <h2 id="account-heading">Microsoft 365</h2>
+        <p>The workspace profile is not a signed-in Microsoft identity. Check the connection page for live account status.</p>
+        <p><a href="/connect" data-enhance-nav="false">Connect Microsoft 365 · live read-only calendar</a></p>
+        <h3>What access is requested?</h3>
+        <p>
+            The separate local connection requests User.Read and Calendars.Read to verify your mailbox and read calendar metadata.
+            It cannot update meetings or send invitations. This workspace requests no permissions.
+        </p>
+        <button class="secondary" @onclick="() => showSignInExplanation = true">How does local sign-in work?</button>
+        @if (showSignInExplanation)
+        {
+            <p role="status">
+                Open the connection page on a configured installation to sign in using your system browser.
+                Workspace review decisions stay independent of live data.
+            </p>
+        }
+    </section>
+    <section class="panel account-card" aria-labelledby="ai-heading">
+        <span class="status-badge neutral">AI UNCONFIGURED</span>
+        <h2 id="ai-heading">AI assistance</h2>
+        <p>Suggestions use built-in rules. No model is connected.</p>
+        <h3>Review suggestions</h3>
+        <p>
+            Enable suggestions based on meeting notes. No meeting details or credentials are sent to a model.
+            Changing this setting resets all review decisions and results.
+        </p>
+        <label class="setting">
+            <input type="checkbox" checked="@Session.SampleAssistanceEnabled" @onchange="ToggleAssistance" data-testid="sample-assistance" />
+            Enable review suggestions
+        </label>
+        <p>Review suggestions: <strong>@(Session.SampleAssistanceEnabled ? "Enabled" : "Disabled · manual review available")</strong></p>
+    </section>
+</div>
+<div class="detail-actions">
+    <button class="primary" @onclick="OnStart">Choose location <AppIcon Name="AppIconName.Next" /></button>
+    <button class="secondary" @onclick="OnHelp">Read help</button>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public DemoReviewSession Session { get; set; } = null!;
+    [Parameter] public EventCallback OnStart { get; set; }
+    [Parameter] public EventCallback OnHelp { get; set; }
+
+    private bool showSignInExplanation;
+    private void ToggleAssistance(ChangeEventArgs e) => Session.SetAssistance(e.Value is true);
+}

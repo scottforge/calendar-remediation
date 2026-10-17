@@ -1,79 +1,140 @@
-@using CalendarRemediation.Host.Review.Models
-@using static CalendarRemediation.Host.Review.Presentation.DemoDisplay
-
-<section class="page-heading">
+<div class="page-heading">
     <div>
-        <p class="eyebrow">THE EXACT DEMO BATCH</p>
-        <h1>A clear view before you approve.</h1>
-        <p>Only the identities and changes listed here are included.</p>
+        <p class="eyebrow">FINAL REVIEW · BATCH @Session.BatchVersion</p>
+        <h1>Check every selected time</h1>
+        <p>@Session.Location.City · @Session.SelectedCount selected · @Session.Preview.Count eligible items in this exact preview</p>
     </div>
-    <button class="secondary" @onclick="OnMeetings">Return to meetings</button>
-</section>
-@if (Preview.Count == 0)
+    <button class="secondary" @onclick="OnMeetings"><AppIcon Name="AppIconName.Back" /> Edit selections</button>
+</div>
+<div class="approval-note">
+    <strong>Approval is a simulation only.</strong>
+    <p>
+        Attendee notification impact is <strong>unknown and not simulated</strong>.
+        No meetings will be changed or invitations sent.
+    </p>
+</div>
+@if (Session.SelectedCount != Session.EligibleCount)
+{
+    <section class="panel unresolved">
+        <h2>Resolve selected meetings before approval</h2>
+        <p>Every selected meeting needs a supported, confirmed local-time or worldwide-time choice. These selections are not in the preview yet:</p>
+        <ul>
+            @foreach (var meeting in Session.Meetings.Where(m => m.IsSelected && m.Intent is not (DemoIntent.Local or DemoIntent.Instant)))
+            {
+                <li>
+                    <button class="text-button" @onclick="() => OnEdit.InvokeAsync(meeting.Id)">
+                        @meeting.Title · choose a time
+                    </button>
+                </li>
+            }
+        </ul>
+        <p>Open the meeting to confirm a choice, or return to the list and deselect it.</p>
+    </section>
+}
+@if (Session.Preview.Count == 0)
 {
     <section class="panel empty-state">
-        <div class="empty-icon" aria-hidden="true">▤</div>
-        <h2>Your preview starts with intent.</h2>
-        <p>Confirm a local-time or absolute-instant choice to build a batch. Skipped and unresolved meetings stay out.</p>
-        <button class="primary" @onclick="OnReview">Review a meeting →</button>
+        <h2>No eligible meetings in this preview</h2>
+        <p>Select supported meetings and confirm their time choices. Selection alone in guided review does not establish intent. After any change, build a fresh preview.</p>
+        <div class="empty-actions">
+            <button class="primary" @onclick="OnMeetings">Return to meetings</button>
+            <button class="secondary" @onclick="() => Session.BuildPreview()">Build current preview</button>
+        </div>
     </section>
 }
 else
 {
-    <div class="batch-summary">
-        <div><small>Exact batch</small><strong>@Preview.Count meetings</strong></div>
-        <div><small>Time updates</small><strong>@Preview.Count(p => p.Intent == DemoIntent.Local)</strong></div>
-        <div><small>No-change decisions</small><strong>@Preview.Count(p => p.Intent == DemoIntent.Instant)</strong></div>
-        <div><small>Excluded from batch</small><strong>@(MeetingCount - Preview.Count)</strong></div>
-    </div>
-    <section class="panel preview-panel">
-        <div class="panel-heading">
-            <div>
-                <h2>Proposed schedule in @Location.City</h2>
-                <p>Fixture rules: source UTC@(Offset(Location.SourceOffset)) → target UTC@(Offset(Location.TargetOffset)) · November 2026</p>
-            </div>
-            <span class="subtle-tag">Batch @BatchVersion.ToString("D2")</span>
-        </div>
-        @foreach (var item in Preview)
+    <div class="preview-items">
+        @foreach (var item in Session.Preview)
         {
-            <article class="preview-row">
-                <div>
-                    <span class="eyebrow">@item.Id · @item.Before.ToString("MMM d, yyyy", Culture)</span>
-                    <h3>@item.Title</h3>
-                    <p>@(item.Intent == DemoIntent.Local ? "Preserve local start · update start and end" : "Preserve absolute instant · no write")</p>
+            var meeting = Session.Find(item.Id)!;
+            <article class="panel preview-item" data-preview-item="@item.Id" @key="item.Id">
+                <div class="item-heading">
+                    <div>
+                        <p class="item-id">@item.Duration minutes per occurrence</p>
+                        <h2>@item.Title</h2>
+                    </div>
+                    <span class="status-badge @(item.Before == item.After ? "neutral" : "blue")">
+                        @(item.Before == item.After ? "No stored time change" : "Proposed time update")
+                    </span>
                 </div>
-                <div class="preview-times">
-                    <span>
-                        <small>NO UPDATE · TARGET LOCAL</small>
-                        <strong>@LocalTime(item.Before, Location.TargetOffset)–@LocalTime(item.Before.AddMinutes(item.Duration), Location.TargetOffset)</strong>
-                        <code>@UtcTime(item.Before)–@UtcTime(item.Before.AddMinutes(item.Duration))</code>
-                    </span>
-                    <span aria-hidden="true">→</span>
-                    <span>
-                        <small>APPROVED OUTCOME · TARGET LOCAL</small>
-                        <strong>@LocalTime(item.After, Location.TargetOffset)–@LocalTime(item.After.AddMinutes(item.Duration), Location.TargetOffset)</strong>
-                        <code>@UtcTime(item.After)–@UtcTime(item.After.AddMinutes(item.Duration))</code>
-                    </span>
+                <p class="scope">@meeting.RecurrenceScope</p>
+                <p class="choice">
+                    @(meeting.HasManualDecision ? "Your confirmed choice" : "Applied suggestion · approval confirms this choice"):
+                    @DemoDisplay.StatusLabel(meeting)
+                </p>
+                @foreach (var occurrence in item.Occurrences)
+                {
+                    <div class="occurrence">
+                        <div class="time-side">
+                            <h3>Source schedule</h3>
+                            <p class="local-time">@LocalRange(occurrence.BeforeStart, occurrence.BeforeEnd, Session.Location.SourceOffset)</p>
+                            <p>@Session.Location.City · UTC@DemoDisplay.Offset(Session.Location.SourceOffset)</p>
+                            <p class="utc-time">@UtcRange(occurrence.BeforeStart, occurrence.BeforeEnd)</p>
+                        </div>
+                        <span class="time-arrow" aria-hidden="true"><AppIcon Name="AppIconName.Next" /></span>
+                        <div class="time-side proposed">
+                            <h3>Proposed schedule</h3>
+                            <p class="local-time">@LocalRange(occurrence.AfterStart, occurrence.AfterEnd, Session.Location.TargetOffset)</p>
+                            <p>@Session.Location.City · UTC@DemoDisplay.Offset(Session.Location.TargetOffset)</p>
+                            <p class="utc-time">@UtcRange(occurrence.AfterStart, occurrence.AfterEnd)</p>
+                        </div>
+                    </div>
+                }
+                <p class="notification">
+                    <strong>Attendee notification: unknown.</strong>
+                    @meeting.Attendees.Length attendees. Delivery and invitation effects are not simulated.
+                </p>
+                <div class="item-actions">
+                    <button class="secondary" @onclick="() => OnEdit.InvokeAsync(item.Id)">Edit time choice</button>
+                    <button class="text-button" @onclick="() => Remove(item.Id)">Remove from batch</button>
                 </div>
             </article>
         }
-    </section>
-    <section class="approval-box">
-        <div>
-            <h2>You’re approving a simulation.</h2>
-            <p>Exact identities: @string.Join(", ", Preview.Select(p => p.Id)). Time updates could notify attendees in a real provider. Delivery, responses, room effects, guard checks, and persistence are not simulated or verified here.</p>
-            <p>Approval applies only to this displayed batch. No real writes or notifications occur.</p>
-        </div>
-        <button class="primary" @onclick="OnApprove">Approve &amp; simulate @Preview.Count decisions →</button>
+    </div>
+    <section class="panel approval">
+        <h2>@(Session.HasResults ? "This exact batch was already simulated" : "Approve this exact batch for simulation?")</h2>
+        <p>
+            Approval covers only the @Session.Preview.Count item(s) and all occurrence times shown above, including any no-change decisions.
+            Duration is unchanged. The simulation records no durable approval or history.
+        </p>
+        <button class="primary" disabled="@(!Session.CanApprove)" @onclick="OnApprove" data-testid="approve-simulate">
+            Approve &amp; simulate @Session.Preview.Count item(s)
+        </button>
+        @if (Session.HasResults)
+        {
+            <p>Your existing results are preserved in Simulation results. This unchanged batch cannot be approved again.</p>
+        }
+        else if (!Session.CanApprove)
+        {
+            <p>Approval is unavailable until every selected meeting has an eligible confirmed choice and a current preview. Return to meetings to resolve the selection.</p>
+        }
     </section>
 }
 
 @code {
-    [Parameter, EditorRequired] public IReadOnlyList<DemoPreview> Preview { get; set; } = [];
-    [Parameter, EditorRequired] public DemoLocation Location { get; set; } = null!;
-    [Parameter] public int MeetingCount { get; set; }
-    [Parameter] public int BatchVersion { get; set; }
+    [Parameter, EditorRequired] public DemoReviewSession Session { get; set; } = null!;
+    [Parameter] public EventCallback<string> OnEdit { get; set; }
     [Parameter] public EventCallback OnMeetings { get; set; }
-    [Parameter] public EventCallback OnReview { get; set; }
     [Parameter] public EventCallback OnApprove { get; set; }
+
+    private void Remove(string id)
+    {
+        Session.SetSelected(id, false);
+        Session.BuildPreview();
+    }
+
+    private static string LocalRange(DateTimeOffset start, DateTimeOffset end, int offset)
+    {
+        var localStart = start.ToOffset(TimeSpan.FromHours(offset)).ToString("MMM d, yyyy · h:mm tt", DemoDisplay.Culture);
+        var localEnd = end.ToOffset(TimeSpan.FromHours(offset)).ToString("MMM d, yyyy · h:mm tt", DemoDisplay.Culture);
+        return $"{localStart} → {localEnd}";
+    }
+
+    private static string UtcRange(DateTimeOffset start, DateTimeOffset end)
+    {
+        var utcStart = start.ToUniversalTime().ToString("yyyy-MM-dd HH:mm 'UTC'", DemoDisplay.Culture);
+        var utcEnd = end.ToUniversalTime().ToString("yyyy-MM-dd HH:mm 'UTC'", DemoDisplay.Culture);
+        return $"{utcStart} → {utcEnd}";
+    }
 }

@@ -1,8 +1,12 @@
 @import url("css/tokens.css");
 
+/* Shared SVG sizing also reaches icons rendered by child components across CSS isolation. */
+.ui-icon { width: 1em; height: 1em; display: inline-block; vertical-align: -.15em; flex-shrink: 0; }
+.session-pill .ui-icon { width: 8px; height: 8px; }
+
 :root { color-scheme: light; font-family: "Inter", "Segoe UI", -apple-system, BlinkMacSystemFont, sans-serif; color: #26364d; background: #f1f6fc; line-height: 1.55; font-synthesis: none; }
 .app-shell .page-heading { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin: 38px 0 27px; }
-.app-shell .eyebrow { font-size: 10px; font-weight: 700; letter-spacing: 1.6px; color: #5879a5; margin: 0 0 11px; }
+.app-shell .eyebrow { font-size: 12px; font-weight: 700; letter-spacing: 1.6px; color: #5879a5; margin: 0 0 11px; }
 .app-shell h1 { color: #23364f; font-size: clamp(28px, 2.7vw, 41px); font-weight: 650; letter-spacing: -1.45px; line-height: 1.2; margin: 0 0 12px; }
 .app-shell h2 { margin: 0; font-size: 17px; font-weight: 650; letter-spacing: -.3px; color: #2b3d57; }
 .app-shell h3 { font-size: 15px; color: #314660; margin: 0 0 10px; font-weight: 650; }
@@ -23,13 +27,13 @@
 .app-shell .amber { background: #fff6e8; color: #946627; }
 .app-shell .green { background: #edf8f3; color: #387b60; }
 .app-shell .neutral { background: #eef1f5; color: #63728a; }
-.app-shell .status-badge { display: inline-flex; align-items: center; justify-content: center; gap: 6px; border-radius: 5px; padding: 5px 9px; font-size: 10px; font-weight: 550; width: fit-content; white-space: nowrap; }
-.app-shell .avatar { display: inline-flex; align-items: center; justify-content: center; background: #e8eafa; color: #64558e; font-size: 11px; width: 35px; height: 35px; border-radius: 50%; flex-shrink: 0; font-weight: 700; }
+.app-shell .status-badge { display: inline-flex; align-items: center; justify-content: center; gap: 6px; border-radius: 5px; padding: 5px 9px; font-size: 12px; font-weight: 550; width: fit-content; white-space: nowrap; }
+.app-shell .avatar { display: inline-flex; align-items: center; justify-content: center; background: #e8eafa; color: #64558e; font-size: 12px; width: 35px; height: 35px; border-radius: 50%; flex-shrink: 0; font-weight: 700; }
 .app-shell .stat-icon { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; border-radius: 12px; font-size: 24px; flex-shrink: 0; }
 .app-shell .panel-heading { padding: 23px 24px 20px; display: flex; justify-content: space-between; align-items: center; gap: 16px; }
-.app-shell .panel-heading p { margin: 7px 0 0; font-size: 11px; color: #6e809c; }
-.app-shell .subtle-tag { display: inline-block; background: #f5f7fb; border: 1px solid #e9edf4; padding: 4px 9px; border-radius: 5px; color: #657b99; font-size: 10px; white-space: nowrap; }
-.app-shell code { font-family: "SFMono-Regular", Consolas, monospace; color: #5c789f; font-size: 10px; }
+.app-shell .panel-heading p { margin: 7px 0 0; font-size: 12px; color: #6e809c; }
+.app-shell .subtle-tag { display: inline-block; background: #f5f7fb; border: 1px solid #e9edf4; padding: 4px 9px; border-radius: 5px; color: #657b99; font-size: 12px; white-space: nowrap; }
+.app-shell code { font-family: "SFMono-Regular", Consolas, monospace; color: #5c789f; font-size: 12px; }
 .app-shell .detail-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 27px 0; }
 .app-shell .detail-actions .primary { margin-left: auto; }
 .app-shell .empty-state { text-align: center; padding: 60px 25px; }
@@ -61,12 +65,12 @@ button, a, input { transition: background-color .15s ease, border-color .15s eas
     .app-shell .page-heading { margin-top: 28px; }
     .app-shell h1 { font-size: 31px; letter-spacing: -1px; }
     .app-shell .page-heading p:not(.eyebrow) { font-size: 12px; }
-    .app-shell .eyebrow { font-size: 8px; letter-spacing: 1.3px; }
+    .app-shell .eyebrow { font-size: 12px; letter-spacing: 1.3px; }
     .app-shell h2 { font-size: 16px; }
     .app-shell .panel-heading { padding: 20px 17px; flex-wrap: wrap; }
-    .app-shell .panel-heading p { font-size: 10px; line-height: 1.8; }
+    .app-shell .panel-heading p { font-size: 12px; line-height: 1.8; }
     .app-shell .detail-actions { gap: 9px; }
-    .app-shell .detail-actions .secondary { flex: 1; padding: 10px; font-size: 10px; }
+    .app-shell .detail-actions .secondary { flex: 1; padding: 10px; font-size: 12px; }
     .app-shell .detail-actions .primary { width: 100%; }
 }
 .route-content > section select, .route-content > section input { padding: .7rem; max-width: 100%; }

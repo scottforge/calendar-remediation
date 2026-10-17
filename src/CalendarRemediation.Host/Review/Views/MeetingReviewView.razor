@@ -1,126 +1,177 @@
-@using CalendarRemediation.Host.Review.Models
-@using static CalendarRemediation.Host.Review.Presentation.DemoDisplay
-
 <div class="detail-breadcrumb">
-    <button class="text-button" @onclick="OnMeetings">← All meetings</button>
-    <span>Meeting @MeetingNumber of @MeetingCount</span>
+    <button class="text-button" @onclick="OnMeetings"><AppIcon Name="AppIconName.Back" /> All meetings</button>
+    <span>@(IsGuided ? $"Meeting {QueuePosition} of {QueueCount}" : "Meeting review")</span>
 </div>
 <section class="page-heading">
     <div>
         <p class="eyebrow">REVIEW MEETING INTENT</p>
         <h1>@Meeting.Title</h1>
-        <p>@Meeting.Start.ToString("dddd, MMMM d, yyyy", Culture) · @Meeting.Duration minutes · Single instance</p>
+        <p>@Meeting.Start.ToString("dddd, MMMM d, yyyy", DemoDisplay.Culture) · @Meeting.Duration minutes · @Meeting.RecurrenceScope</p>
     </div>
-    <span class="status-badge @StatusClass(Meeting)">@StatusLabel(Meeting)</span>
+    <span class="status-badge @DemoDisplay.StatusClass(Meeting)">@DemoDisplay.StatusLabel(Meeting)</span>
 </section>
+@if (IsGuided)
+{
+    <section class="review-progress" role="status" data-testid="guided-progress" aria-label="Selected meeting review progress">
+        <div class="progress-copy">
+            <span class="progress-label">Selected meetings</span>
+            <strong>Meeting @QueuePosition of @QueueCount</strong>
+        </div>
+        <progress class="progress-meter" max="@QueueCount" value="@QueuePosition" aria-label="Meeting @QueuePosition of @QueueCount"></progress>
+        <span class="progress-remaining">@(QueueCount - QueuePosition) meetings left after this</span>
+    </section>
+}
 <div class="detail-grid">
     <div>
         <section class="panel intent-panel">
             <p class="eyebrow">YOUR CONFIRMATION</p>
             <h2>What should stay the same?</h2>
-            <p>Think about why this meeting happens at this time. Choose the interpretation you intend for this sample.</p>
-            <button class="intent-card @(Meeting.Intent == DemoIntent.Local ? "chosen" : "")" aria-pressed="@(Meeting.Intent == DemoIntent.Local)" @onclick="() => OnIntent.InvokeAsync(DemoIntent.Local)">
-                <span class="choice-circle">@(Meeting.Intent == DemoIntent.Local ? "●" : "")</span>
-                <span>
-                    <strong>Keep the local start time</strong>
-                    <small>Keep @SourceTime(Meeting, Location) in @Location.City. The UTC instant moves forward one hour.</small>
-                </span>
-                <span class="intent-symbol" aria-hidden="true">◷</span>
-            </button>
-            <button class="intent-card @(Meeting.Intent == DemoIntent.Instant ? "chosen" : "")" aria-pressed="@(Meeting.Intent == DemoIntent.Instant)" @onclick="() => OnIntent.InvokeAsync(DemoIntent.Instant)">
-                <span class="choice-circle">@(Meeting.Intent == DemoIntent.Instant ? "●" : "")</span>
-                <span>
-                    <strong>Keep the absolute instant</strong>
-                    <small>Keep @UtcTime(Meeting.Start). In @Location.City, it displays as @TargetTime(Meeting, DemoIntent.Instant, Location).</small>
-                </span>
-                <span class="intent-symbol" aria-hidden="true">◎</span>
-            </button>
-            <div class="intent-alternatives">
-                <button class="secondary @(Meeting.Intent == DemoIntent.Skip ? "chosen" : "")" aria-pressed="@(Meeting.Intent == DemoIntent.Skip)" @onclick="() => OnIntent.InvokeAsync(DemoIntent.Skip)">Skip this meeting</button>
-                <button class="text-button" @onclick="() => OnIntent.InvokeAsync(DemoIntent.Unset)">I’m not sure / clear choice</button>
-            </div>
-            <p class="confirmation-note" role="status">@IntentNote(Meeting.Intent)</p>
-        </section>
-        <section class="panel comparison-panel">
-            <div class="panel-heading">
-                <div>
-                    <h2>See the time, not just the label</h2>
-                    <p>@Location.City · @Meeting.Start.ToString("MMM d, yyyy", Culture) · @Meeting.Duration-minute duration preserved</p>
+            <p>Think about why this meeting happens at this time. Compare both outcomes for @Session.Location.City.</p>
+            <div class="sample-notes"><strong>Meeting notes</strong><p>@Meeting.Notes</p></div>
+            @if (!Meeting.IsSupported)
+            {
+                <p class="unsupported">This recurring meeting cannot be selected or approved. Moved occurrences and cancellations are not supported.</p>
+            }
+            else
+            {
+                <button class="intent-card @(Meeting.Intent == DemoIntent.Local ? "chosen" : "")" aria-pressed="@(Meeting.Intent == DemoIntent.Local)" data-intent="local" @onclick="() => Choose(DemoIntent.Local)">
+                    <span class="choice-circle" aria-hidden="true">@(Meeting.Intent == DemoIntent.Local ? "●" : "")</span>
+                    <span><strong>Keep my local time</strong><small>Keep @DemoDisplay.SourceTime(Meeting, Session.Location) in @Session.Location.City. @LocalEffect</small></span>
+                    <span class="intent-symbol" aria-hidden="true"><AppIcon Name="AppIconName.LocalTime" /></span>
+                </button>
+                <button class="intent-card @(Meeting.Intent == DemoIntent.Instant ? "chosen" : "")" aria-pressed="@(Meeting.Intent == DemoIntent.Instant)" data-intent="instant" @onclick="() => Choose(DemoIntent.Instant)">
+                    <span class="choice-circle" aria-hidden="true">@(Meeting.Intent == DemoIntent.Instant ? "●" : "")</span>
+                    <span><strong>Keep the same worldwide moment</strong><small>Keep @DemoDisplay.UtcTime(Meeting.Start). In @Session.Location.City, it displays as @DemoDisplay.TargetTime(Meeting, DemoIntent.Instant, Session.Location).</small></span>
+                    <span class="intent-symbol" aria-hidden="true"><AppIcon Name="AppIconName.WorldwideTime" /></span>
+                </button>
+                <div class="intent-alternatives">
+                    <button class="secondary @(Meeting.Intent == DemoIntent.Skip ? "chosen" : "")" aria-pressed="@(Meeting.Intent == DemoIntent.Skip)" data-intent="skip" @onclick="() => Choose(DemoIntent.Skip)">Skip this meeting</button>
+                    <button class="text-button" aria-pressed="@(Meeting.Intent == DemoIntent.Unset)" data-intent="unset" @onclick="() => Choose(DemoIntent.Unset)">I’m not sure / clear choice</button>
                 </div>
-            </div>
+                <p class="confirmation-note" role="status" data-testid="intent-confirmation"><strong>@(Meeting.HasManualDecision ? "Your decision" : "No manual confirmation yet"):</strong> @DemoDisplay.IntentNote(Meeting.Intent)</p>
+                @if (!IsGuided)
+                {
+                    <label class="include"><input type="checkbox" checked="@Meeting.IsSelected" @onchange="e => Select(e.Value is true)" />Include @Meeting.Title in my selected batch</label>
+                }
+            }
+        </section>
+        <section class="panel comparison-panel" data-testid="intent-comparison" aria-label="Current and proposed schedule">
+            <div class="panel-heading"><div><h2>See the time, not just the label</h2><p>@Session.Location.City · @Meeting.Duration-minute duration preserved</p></div></div>
             <div class="time-comparison">
                 <div>
                     <small>STORED / SOURCE RULE</small>
-                    <strong>@SourceTime(Meeting, Location)</strong>
-                    <p>UTC@(Offset(Location.SourceOffset))</p>
-                    <code>@UtcTime(Meeting.Start)</code>
+                    <strong>@DemoDisplay.SourceTime(Meeting, Session.Location)</strong>
+                    <p>UTC@DemoDisplay.Offset(Session.Location.SourceOffset)</p>
+                    <code>Start @DemoDisplay.UtcTime(Meeting.Start)</code>
+                    <code>End @DemoDisplay.UtcTime(Meeting.Start.AddMinutes(Meeting.Duration))</code>
                 </div>
-                <span class="comparison-arrow" aria-hidden="true">→</span>
+                <span class="comparison-arrow" aria-hidden="true"><AppIcon Name="AppIconName.Next" /></span>
                 <div class="target-time">
-                    <small>@(Meeting.Intent == DemoIntent.Local ? "YOUR CHOICE · KEEP LOCAL" : "NO UPDATE · TARGET RULE")</small>
-                    <strong>@TargetTime(Meeting, Meeting.Intent, Location)</strong>
-                    <p>UTC@(Offset(Location.TargetOffset))</p>
-                    <code>@UtcTime(ProposedStart(Meeting, Meeting.Intent, Location))</code>
+                    <small>@(Meeting.Intent == DemoIntent.Local ? "YOUR CHOICE · KEEP LOCAL" : Meeting.Intent == DemoIntent.Instant ? "YOUR CHOICE · SAME MOMENT" : "NO UPDATE · TARGET RULE")</small>
+                    <strong>@DemoDisplay.TargetTime(Meeting, Meeting.Intent, Session.Location)</strong>
+                    <p>UTC@DemoDisplay.Offset(Session.Location.TargetOffset)</p>
+                    <code>Start @DemoDisplay.UtcTime(DemoDisplay.ProposedStart(Meeting, Meeting.Intent, Session.Location))</code>
+                    <code>End @DemoDisplay.UtcTime(DemoDisplay.ProposedStart(Meeting, Meeting.Intent, Session.Location).AddMinutes(Meeting.Duration))</code>
                 </div>
             </div>
-            <p class="comparison-caption">Without an update: @TargetTime(Meeting, DemoIntent.Instant, Location) local at the same stored instant. @(Meeting.Intent == DemoIntent.Local ? "Your choice moves both start and end forward 60 minutes." : "This comparison leaves the stored start and end unchanged.")</p>
+            <p class="comparison-caption">Without an update: @DemoDisplay.TargetTime(Meeting, DemoIntent.Instant, Session.Location) local at the same stored instant. A stored UTC timestamp does not establish organizer intent. @Meeting.RecurrenceScope</p>
         </section>
     </div>
     <aside class="detail-aside">
         <section class="panel ai-panel">
-            <div class="ai-heading">
-                <span aria-hidden="true">✧</span>
-                <strong>An extra perspective</strong>
-                <span class="subtle-tag">Mock AI</span>
-            </div>
-            <h3>Could this be a local-time anchor?</h3>
-            <p>@Meeting.Hypothesis</p>
-            <div class="evidence-label">OBSERVED SAMPLE FACTS</div>
-            <ul>
-                <li>Title: @Meeting.Title</li>
-                <li>Organizer: Jamie Davis (sample)</li>
-                <li>@Meeting.Attendees.Length internal sample attendees</li>
-            </ul>
-            <div class="hypothesis-note">A hypothesis, not a finding. No model ran. These clues cannot establish intent. Your choice is recorded separately.</div>
+            <div class="ai-heading"><span aria-hidden="true"><AppIcon Name="AppIconName.Assistance" /></span><strong>An extra perspective</strong><span class="subtle-tag">AI assistance</span></div>
+            <h3>@Meeting.Assessment.Label</h3>
+            @if (Meeting.Assessment.Kind != DemoAssessmentKind.NotAssessed)
+            {
+                <p>@Meeting.Assessment.Rationale</p>
+            }
+            else
+            {
+                <p>No assessment requested. Use the meeting notes, or request rule-based suggestions.</p>
+            }
+            <p><strong>Question, not a finding:</strong> @Meeting.Hypothesis</p>
+            <div class="evidence-label">MEETING DETAILS</div>
+            <ul><li>Title: @Meeting.Title</li><li>Jamie Davis · Workspace profile</li><li>@Meeting.Attendees.Length internal attendees</li><li>@Meeting.RecurrenceScope</li></ul>
+            <button class="secondary" disabled="@(!Session.SampleAssistanceEnabled)" @onclick="Analyze">Show rule-based suggestions for all six</button>
+            @if (Session.SampleAssistanceEnabled && Session.Meetings.Any(m => m.Assessment.Kind == DemoAssessmentKind.ProposeLocal))
+            {
+                <button class="secondary" @onclick="() => Session.ApplyRecommendations()" data-testid="apply-suggestions">Confirm local-time suggestions</button>
+                <p>This selects meetings with local-time suggestions and no manual decision. Existing manual decisions are preserved. Review exact times before approval.</p>
+            }
+            @if (!Session.SampleAssistanceEnabled)
+            {
+                <p>Review suggestions are off in Account &amp; AI. Use the manual choices.</p>
+            }
+            <div class="hypothesis-note">Suggestions preserve your choices. Meeting details can suggest intent, but only you can confirm it.</div>
         </section>
         <section class="panel people-panel">
             <h2>Who’s invited</h2>
             <div class="attendee-avatars" aria-hidden="true">
                 @foreach (var person in Meeting.Attendees.Take(4))
                 {
-                    <span class="avatar">@Initials(person)</span>
+                    <span class="avatar">@DemoDisplay.Initials(person)</span>
                 }
             </div>
             <p>Jamie Davis · Organizer</p>
-            <button class="text-button" aria-expanded="@ShowAttendees" @onclick="OnToggleAttendees">@(ShowAttendees ? "Hide attendee list ↑" : $"View all {Meeting.Attendees.Length} attendees ↓")</button>
+            <button class="text-button" aria-expanded="@(ShowAttendees ? "true" : "false")" @onclick="OnToggleAttendees">@(ShowAttendees ? "Hide attendee list" : $"View all {Meeting.Attendees.Length} attendees") <AppIcon Name="@(ShowAttendees ? AppIconName.Collapse : AppIconName.Expand)" /></button>
             @if (ShowAttendees)
             {
                 <ul class="attendee-list">
                     @foreach (var person in Meeting.Attendees)
                     {
-                        <li>@person <small>Internal · sample</small></li>
+                        <li>@person <small>Internal</small></li>
                     }
                 </ul>
             }
-            <p class="small-note">Real invitation delivery and attendee responses are not modeled.</p>
+            <p class="small-note">Invitation delivery and attendee responses are not simulated.</p>
         </section>
     </aside>
 </div>
 <div class="detail-actions">
-    <button class="secondary" @onclick="() => OnMove.InvokeAsync(-1)">← Previous meeting</button>
-    <button class="secondary" @onclick="() => OnMove.InvokeAsync(1)">Next meeting →</button>
-    <button class="primary" @onclick="OnPreview">Preview confirmed choices ↗</button>
+    <button class="secondary" disabled="@(IsGuided && QueuePosition <= 1)" @onclick="() => OnMove.InvokeAsync(-1)" data-testid="previous-meeting"><AppIcon Name="AppIconName.Back" /> Previous meeting</button>
+    <button class="secondary" disabled="@(IsGuided && QueuePosition >= QueueCount)" @onclick="() => OnMove.InvokeAsync(1)" data-testid="next-meeting">Next meeting <AppIcon Name="AppIconName.Next" /></button>
+    @if (IsGuided)
+    {
+        <button class="secondary" @onclick="OnSkipForNow" data-testid="skip-for-now">Skip for now</button>
+        <button class="primary" disabled="@(!CanSave)" aria-describedby="guided-choice-status" @onclick="OnSaveChoice" data-testid="save-guided-choice">@(IsLastChoice ? "Save choice & review batch" : "Save choice & next meeting")</button>
+    }
+    else
+    {
+        <button class="primary" @onclick="OnPreview">Review selected batch (@Session.SelectedCount)</button>
+    }
 </div>
+@if (IsGuided)
+{
+    <p id="guided-choice-status" class="choice-status" role="status" data-testid="guided-choice-status">
+        @(!CanSave ? "Choose local time, the worldwide moment, or skip to enable saving. If unsure, use Skip for now to leave this unresolved and outside the batch."
+            : Meeting.Intent == DemoIntent.Skip ? "Saving this choice leaves this meeting out of the batch."
+            : "Saving includes this meeting with your chosen intent. Previous and next only browse, without changing selection.")
+    </p>
+}
 
 @code {
+    [Parameter, EditorRequired] public DemoReviewSession Session { get; set; } = null!;
     [Parameter, EditorRequired] public DemoMeeting Meeting { get; set; } = null!;
-    [Parameter, EditorRequired] public DemoLocation Location { get; set; } = null!;
-    [Parameter] public int MeetingNumber { get; set; }
-    [Parameter] public int MeetingCount { get; set; }
     [Parameter] public bool ShowAttendees { get; set; }
     [Parameter] public EventCallback OnToggleAttendees { get; set; }
-    [Parameter] public EventCallback<DemoIntent> OnIntent { get; set; }
     [Parameter] public EventCallback<int> OnMove { get; set; }
     [Parameter] public EventCallback OnPreview { get; set; }
     [Parameter] public EventCallback OnMeetings { get; set; }
+    [Parameter] public bool IsGuided { get; set; }
+    [Parameter] public int QueuePosition { get; set; }
+    [Parameter] public int QueueCount { get; set; }
+    [Parameter] public bool IsLastChoice { get; set; }
+    [Parameter] public EventCallback OnSaveChoice { get; set; }
+    [Parameter] public EventCallback OnSkipForNow { get; set; }
+
+    private bool CanSave => Session.LocationConfirmed && Meeting.IsSupported &&
+        Meeting.Intent is DemoIntent.Local or DemoIntent.Instant or DemoIntent.Skip;
+
+    private string LocalEffect => Session.Location.SourceOffset == Session.Location.TargetOffset
+        ? "The offsets are equal, so this is a no-change decision."
+        : "The stored start and end shift while the source local time is preserved.";
+
+    private void Choose(DemoIntent intent) => Session.SetIntent(Meeting.Id, intent);
+    private void Select(bool selected) => Session.SetSelected(Meeting.Id, selected);
+    private void Analyze() => Session.AnalyzeSamples();
 }

@@ -1,47 +1,22 @@
-.location-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 22px; margin: 35px 0 28px; }
-.city-card { background: #fff; border: 2px solid #e0e8f3; border-radius: 14px; overflow: hidden; padding: 0; text-align: left; }
-.city-card:hover, .city-card.chosen { border-color: #5d8be4; box-shadow: 0 6px 20px #416cad10; }
-.city-art { height: 173px; position: relative; overflow: hidden; background: linear-gradient(160deg, #e7f2fd, #d3e5f5); }
-.sun { position: absolute; width: 40px; height: 40px; border-radius: 50%; background: #fff2ce; top: 30px; right: 40px; }
-.mountain { position: absolute; width: 210px; height: 180px; background: #adc6d8; clip-path: polygon(0 100%, 50% 5%, 100% 100%); bottom: 8px; left: -20px; }
-.mountain.two { background: #c5d9e6; left: 90px; bottom: -22px; }
-.water { height: 35px; position: absolute; bottom: 0; left: 0; width: 100%; background: #9dbfd0; opacity: .7; }
-.skyline { position: absolute; width: 100%; height: 65px; background: #6e98aa; bottom: 18px; clip-path: polygon(0 100%, 0 80%, 10% 80%, 10% 42%, 16% 42%, 16% 65%, 25% 65%, 25% 10%, 32% 10%, 32% 75%, 39% 75%, 39% 52%, 48% 52%, 48% 22%, 55% 22%, 55% 68%, 64% 68%, 64% 40%, 73% 40%, 73% 80%, 85% 80%, 85% 58%, 94% 58%, 94% 100%); }
-.peaks { background: linear-gradient(160deg, #edf0fd, #dce4f6); }
-.peaks .mountain { background: #a9b9d2; bottom: 0; height: 200px; width: 260px; }
-.peaks .mountain.two { background: #c1cee5; }
-.peaks .skyline { opacity: .4; height: 35px; background: #648484; }
-.peaks .water { background: #a1b6a9; height: 24px; }
-.city { background: linear-gradient(160deg, #eeeefa, #e5deef); }
-.city .mountain { display: none; }
-.city .skyline { height: 118px; background: #a09cbc; }
-.city .water { background: #c0b7d3; }
-.city-content { padding: 23px 20px; position: relative; }
-.city-content h2 { font-size: 20px; margin-bottom: 3px; }
-.city-content p { font-size: 12px; color: #687f9f; margin: 0 0 18px; }
-.city-check { position: absolute; right: 18px; top: 24px; border-radius: 50%; background: #eef4fe; color: #5281d4; width: 25px; height: 25px; text-align: center; }
-.chosen .city-check { background: #3772dc; color: #fff; }
-.city-content small { font-size: 10px; color: #637d9f; }
-.rule-note { padding: 27px; display: flex; align-items: flex-start; gap: 20px; }
-.rule-note p { font-size: 13px; color: #657c9c; max-width: 800px; }
-
-@media (max-width: 1200px) {
-    .location-grid { gap: 15px; }
-    .city-content small { font-size: 9px; }
-}
-@media (max-width: 950px) {
-    .location-grid { grid-template-columns: 1fr; }
-    .city-card { display: grid; grid-template-columns: 150px 1fr; }
-    .city-art { height: 100%; min-height: 155px; }
-    .city-content { padding: 22px 20px; }
-    .city-content small { font-size: 10px; }
-}
-@media (max-width: 700px) {
-    .rule-note { display: block; padding: 23px; }
-    .city-card { grid-template-columns: 115px 1fr; }
-    .city-content { padding: 21px 15px; }
-    .city-content h2 { font-size: 18px; }
-    .city-content p { font-size: 10px; }
-    .city-content small { font-size: 8px; }
-    .city-check { right: 12px; width: 22px; height: 22px; font-size: 13px; }
-}
+.location-panel { padding: 30px; max-width: 1000px; }
+.location-panel p { color: #60738e; font-size: 14px; }
+.province-fieldset { border: 0; padding: 0; margin: 24px 0 30px; min-width: 0; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+.province-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.province-card { position: relative; display: flex; flex-direction: column; overflow: hidden; border: 2px solid #d6e2f1; border-radius: 12px; background: #fff; cursor: pointer; color: #263f60; transition: border-color 120ms ease, box-shadow 120ms ease; }
+.province-card:hover { border-color: #8eadd8; }
+.province-card.selected { border-color: #326bce; box-shadow: 0 0 0 2px rgb(50 107 206 / 12%); }
+.province-card:focus-within { outline: 3px solid #8bb5f0; outline-offset: 3px; }
+.province-card input { position: absolute; top: 12px; right: 12px; z-index: 1; width: 20px; height: 20px; margin: 0; accent-color: #326bce; }
+.province-landscape { display: block; width: 100%; height: 112px; background: #eaf2f8; }
+.province-card-content { display: grid; gap: 5px; padding: 14px 16px 16px; }
+.province-card-content strong { font-size: 16px; }
+.province-card-content > span { color: #60738e; font-size: 13px; line-height: 1.45; }
+.location-fields { display: grid; grid-template-columns: 1fr; gap: 22px; margin: 0 0 24px; }
+label { font-size: 13px; font-weight: 600; }
+select { display: block; width: 100%; padding: 13px; border: 1px solid #b8cbe6; border-radius: 8px; background: #fff; margin-top: 9px; color: #263f60; }
+.location-summary { display: flex; gap: 20px; padding: 22px; background: #f0f5ff; border-radius: 12px; }
+.location-summary > span { color: #326bce; font-size: 32px; }
+.location-summary p { margin-bottom: 0; }
+.notice { border-left: 3px solid #c29a49; padding: 12px 18px; background: #fffaf0; margin-top: 25px; }
+@media(max-width:700px) { .location-panel { padding: 22px; } .province-grid { grid-template-columns: 1fr; } }

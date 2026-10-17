@@ -1,64 +1,63 @@
-@using CalendarRemediation.Host.Review.Models
-@using static CalendarRemediation.Host.Review.Presentation.DemoDisplay
-
-<section class="page-heading">
+<div class="page-heading">
     <div>
-        <p class="eyebrow">DEMO RESULTS</p>
-        <h1>@(HasResults ? "A little more clarity. All accounted for." : "Your results will appear here.")</h1>
-        <p>@(HasResults ? "The displayed batch was processed in circuit memory only." : "Review intent, preview the exact batch, then run the simulation.")</p>
+        <p class="eyebrow">SIMULATION RESULTS</p>
+        <h1>@(Session.HasResults ? "Your batch was simulated" : "No current simulation")</h1>
+        <p>No calendar changes, attendee messages or provider requests were made.</p>
     </div>
-    <button class="secondary" @onclick="OnMeetings">Back to meetings</button>
-</section>
-@if (HasResults)
+</div>
+@if (Session.HasResults)
 {
-    <section class="result-hero">
-        <span class="result-check" aria-hidden="true">✓</span>
+    <div class="results-summary panel">
+    <span class="result-mark" aria-hidden="true"><AppIcon Name="AppIconName.Confirmed" /></span>
         <div>
-            <h2>Simulation complete</h2>
-            <p>@Preview.Count(p => p.Intent == DemoIntent.Local) simulated time updates · @Preview.Count(p => p.Intent == DemoIntent.Instant) unchanged instants · @(MeetingCount - Preview.Count) excluded meetings</p>
-            <strong>No real meetings were changed.</strong>
+            <h2>@Session.Preview.Count item(s) simulated</h2>
+            <p>These results reflect the exact approved batch. They do not verify any provider outcome.</p>
         </div>
-    </section>
-    <section class="panel">
-        <div class="panel-heading">
-            <div>
-                <h2>Every decision, visible</h2>
-                <p>Illustrative outcomes. No organizer-side or attendee-side verification took place.</p>
-            </div>
-        </div>
-        @foreach (var item in Preview)
+    </div>
+    <section class="panel result-list" aria-label="Per-item simulation results">
+        @foreach (var item in Session.Preview)
         {
-            <div class="result-row">
-                <span class="result-tick" aria-hidden="true">✓</span>
+            <article class="result-item" data-result-item="@item.Id">
                 <div>
-                    <strong>@item.Title</strong>
-                    <p>@item.Id · @item.After.ToString("MMM d, yyyy", Culture) · @LocalTime(item.After, Location.TargetOffset) @Location.City · @UtcTime(item.After)</p>
+                    <h2>@item.Title</h2>
+                    <p>@Session.Find(item.Id)!.RecurrenceScope</p>
+                    <p>
+                        @(item.Before == item.After
+                            ? "No-change decision simulated. The stored time stays the same."
+                            : "Time-update decision simulated. No stored meeting was actually updated.")
+                    </p>
+                    <p>
+                        First occurrence: @item.After.ToUniversalTime().ToString("yyyy-MM-dd HH:mm 'UTC'", DemoDisplay.Culture)–@item.After.AddMinutes(item.Duration).ToUniversalTime().ToString("HH:mm 'UTC'", DemoDisplay.Culture) ·
+                        @item.Duration minutes unchanged.
+                    </p>
+                    <p>Attendee notification: <strong>unknown, not simulated</strong>.</p>
                 </div>
-                <span class="status-badge green">@(item.Intent == DemoIntent.Local ? "Simulated update" : "No change needed")</span>
-            </div>
+                <span class="status-badge blue">Simulation only</span>
+            </article>
         }
     </section>
-    <div class="detail-actions">
-        <button class="secondary" @onclick="OnPreview">View exact batch</button>
-        <button class="primary" @onclick="OnReset">Start a fresh demo ↻</button>
-    </div>
 }
 else
 {
     <section class="panel empty-state">
-        <div class="empty-icon" aria-hidden="true">✓</div>
-        <h2>Nothing has been simulated yet.</h2>
-        <p>You can explore freely. Approval happens on the exact preview.</p>
-        <button class="primary" @onclick="OnPreview">Open preview →</button>
+        <h2>Build and approve a batch first</h2>
+        <p>Changing selections, choices, location or review suggestions clears earlier simulation results.</p>
     </section>
 }
+<section class="session-note">
+    <h2>Only in this session</h2>
+    <p>
+        There is no permanent history, retry or revert operation. A new session or reset clears your work.
+        Changing any review decision clears these results and requires a new preview and approval.
+    </p>
+</section>
+<div class="detail-actions">
+    <button class="primary" @onclick="OnMeetings">Back to meetings</button>
+    <button class="secondary" @onclick="OnReset">Reset workspace</button>
+</div>
 
 @code {
-    [Parameter] public bool HasResults { get; set; }
-    [Parameter, EditorRequired] public IReadOnlyList<DemoPreview> Preview { get; set; } = [];
-    [Parameter, EditorRequired] public DemoLocation Location { get; set; } = null!;
-    [Parameter] public int MeetingCount { get; set; }
+    [Parameter, EditorRequired] public DemoReviewSession Session { get; set; } = null!;
     [Parameter] public EventCallback OnMeetings { get; set; }
-    [Parameter] public EventCallback OnPreview { get; set; }
     [Parameter] public EventCallback OnReset { get; set; }
 }

@@ -1,43 +1,49 @@
+using CalendarRemediation.Host.Components;
 using CalendarRemediation.Host.Review.Models;
-using CalendarRemediation.Host.Review.Presentation;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Web;
 
 namespace CalendarRemediation.Host.Review;
 
-public partial class Home
+public partial class Home : IDisposable
 {
-    private static readonly (string Key, string Label, string Icon)[] Navigation =
+    private static readonly (string Key, string Label, AppIconName Icon)[] Navigation =
     [
-        ("meetings", "Meeting workspace", "▦"), ("locations", "Locations & rules", "⌖"),
-        ("preview", "Change preview", "▤"), ("results", "Demo results", "✓")
+        ("home", "Home", AppIconName.Home), ("account", "Account & AI", AppIconName.Account), ("locations", "Your location", AppIconName.Location),
+        ("meetings", "Meetings", AppIconName.Meetings), ("preview", "Review changes", AppIconName.Preview), ("help", "Help", AppIconName.Help)
     ];
-    private static readonly (string Key, string Label)[] Filters =
-    [
-        ("all", "All meetings"), ("review", "Needs review"), ("ready", "Confirmed"), ("skipped", "Skipped")
-    ];
-    private static readonly DemoLocation[] Locations =
-    [
-        new("Vancouver", "British Columbia", -7, -8, "coast"),
-        new("Calgary", "Alberta", -6, -7, "peaks"),
-        new("Toronto", "Ontario · comparison fixture", -4, -5, "city")
-    ];
-    private readonly List<DemoMeeting> meetings = CreateMeetings();
-    private readonly List<DemoPreview> preview = [];
-    private DemoLocation location = Locations[0];
-    private DemoMeeting selectedMeeting = null!;
-    private string view = "meetings";
+    private readonly DemoReviewSession session = new();
+    private string view = "home";
     private string activeFilter = "all";
     private string search = "";
-    private string message = "";
+    private string selectedId = "DEMO-01";
     private bool showAttendees;
-    private bool hasResults;
-    private int batchVersion;
+    private readonly List<string> guidedQueue = [];
+    private readonly HashSet<string> guidedVisited = [];
+    private bool IsGuidedReview => guidedQueue.Contains(selectedId) && session.Mode is DemoReviewMode.Guided or DemoReviewMode.Assisted;
+    private int GuidedPosition => guidedQueue.IndexOf(selectedId) + 1;
+    private bool IsLastGuidedChoice => guidedQueue.All(id => id == selectedId || guidedVisited.Contains(id));
     private ElementReference mainContent;
-    private string renderedView = "meetings";
     private bool focusPending;
+    private string renderedView = "home";
+    private string ViewTitle => view switch
+    {
+        "account" => "Account & AI",
+        "locations" => "Your location",
+        "meetings" => "Meetings",
+        "detail" => "Meeting review",
+        "preview" => "Review changes",
+        "results" => "Simulation results",
+        "help" => "Help",
+        _ => "Home"
+    };
 
-    protected override void OnInitialized() => selectedMeeting = meetings[0];
+    protected override void OnInitialized() => session.Changed += StateHasChanged;
+    public void Dispose()
+    {
+        session.Changed -= StateHasChanged;
+        GC.SuppressFinalize(this);
+    }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -49,122 +55,85 @@ public partial class Home
         }
     }
 
-    private string ViewTitle => view switch
-    {
-        "locations" => "Locations & rules",
-        "detail" => "Meeting review",
-        "preview" => "Change preview",
-        "results" => "Demo results",
-        "help" => "Help & demo guide",
-        _ => "Meeting workspace"
-    };
-    private IEnumerable<DemoMeeting> FilteredMeetings => meetings.Where(m =>
-        (activeFilter switch
-        {
-            "review" => m.Intent == DemoIntent.Unset,
-            "ready" => m.Intent is DemoIntent.Local or DemoIntent.Instant,
-            "skipped" => m.Intent == DemoIntent.Skip,
-            _ => true
-        }) && (string.IsNullOrWhiteSpace(search) || m.Title.Contains(search, StringComparison.OrdinalIgnoreCase) ||
-            m.Category.Contains(search, StringComparison.OrdinalIgnoreCase) ||
-            m.Attendees.Any(a => a.Contains(search, StringComparison.OrdinalIgnoreCase))));
-
     private void Navigate(string destination)
     {
-        if (destination == "preview")
-        {
-            OpenPreview();
-            return;
-        }
+        if (destination is "meetings" or "preview" or "detail" && !session.LocationConfirmed) { destination = "locations"; }
+        if (destination == "preview") { session.BuildPreview(); }
         view = destination;
-        message = "";
     }
-    private void SetFilter(string filter)
+    private void OpenMeeting(string id)
     {
-        activeFilter = filter;
-        view = "meetings";
-        message = "";
+        guidedQueue.Clear();
+        guidedVisited.Clear();
+        ShowMeeting(id);
     }
-    private void ClearFilters()
+    private void ShowMeeting(string id)
     {
-        activeFilter = "all";
-        search = "";
-    }
-    private void OpenMeeting(DemoMeeting meeting)
-    {
-        selectedMeeting = meeting;
+        selectedId = id;
         showAttendees = false;
-        view = "detail";
-        message = "";
+        Navigate("detail");
+        focusPending = true;
     }
     private void MoveMeeting(int direction)
     {
-        OpenMeeting(meetings[(meetings.IndexOf(selectedMeeting) + direction + meetings.Count) % meetings.Count]);
-        focusPending = true;
-    }
-    private void ReviewNext() => OpenMeeting(meetings.FirstOrDefault(m => m.Intent == DemoIntent.Unset) ?? meetings[0]);
-    private void SetIntent(DemoIntent intent)
-    {
-        if (selectedMeeting.Intent == intent) { return; }
-        selectedMeeting.Intent = intent;
-        InvalidatePreview();
-        message = "Choice updated in this demo session. Earlier preview and results cleared.";
-    }
-    private void ChooseLocation(DemoLocation city)
-    {
-        if (city == location)
+        if (IsGuidedReview)
         {
-            message = $"{city.City} is your selected sample location.";
+            var index = guidedQueue.IndexOf(selectedId) + direction;
+            if (index >= 0 && index < guidedQueue.Count) { ShowMeeting(guidedQueue[index]); }
             return;
         }
-        location = city;
-        foreach (var meeting in meetings) { meeting.Intent = DemoIntent.Unset; }
-        InvalidatePreview();
-        message = $"Sample location changed to {city.City}. Confirm meeting intents again for this location. Earlier preview and results cleared.";
+        var ids = session.Meetings.Select(m => m.Id).ToList();
+        OpenMeeting(ids[(ids.IndexOf(selectedId) + direction + ids.Count) % ids.Count]);
     }
-    private void InvalidatePreview()
+    private void StartGuidedReview() => StartReview(DemoReviewMode.Guided);
+    private void StartAssistedReview()
     {
-        preview.Clear();
-        hasResults = false;
+        if (session.AnalyzeSamples()) { StartReview(DemoReviewMode.Assisted); }
     }
-    private void OpenPreview()
+    private void StartReview(DemoReviewMode mode)
     {
-        if (preview.Count == 0)
-        {
-            foreach (var meeting in meetings.Where(m => m.Intent is DemoIntent.Local or DemoIntent.Instant))
-            {
-                preview.Add(new(meeting.Id, meeting.Title, meeting.Start, DemoDisplay.ProposedStart(meeting, meeting.Intent, location), meeting.Duration, meeting.Intent));
-            }
-            if (preview.Count > 0) { batchVersion++; }
-        }
-        view = "preview";
-        message = "";
+        var queue = session.Meetings.Where(m => m.IsSupported && m.IsSelected).ToList();
+        if (queue.Count == 0) { return; }
+        session.SetMode(mode);
+        var first = queue.FirstOrDefault(m => m.Intent == DemoIntent.Unset) ?? queue[0];
+        OpenMeeting(first.Id);
+        // Rotate the snapshot so every queued meeting follows the starting unresolved item.
+        var start = queue.IndexOf(first);
+        guidedQueue.AddRange(queue.Skip(start).Concat(queue.Take(start)).Select(m => m.Id));
     }
-    private void ApproveDemo()
+    private void SaveGuidedChoice()
     {
-        if (preview.Count == 0) { OpenPreview(); return; }
-        hasResults = true;
-        view = "results";
-        message = "Exact demo batch approved and simulated. No provider requests or calendar writes were made.";
+        if (!IsGuidedReview || session.Find(selectedId) is not { IsSupported: true } meeting ||
+            meeting.Intent == DemoIntent.Unset) { return; }
+        if (!session.SetSelected(meeting.Id, meeting.Intent is DemoIntent.Local or DemoIntent.Instant)) { return; }
+        AdvanceGuidedReview();
     }
-    private void ResetDemo()
+    private void SkipGuidedChoice()
     {
-        foreach (var meeting in meetings) { meeting.Intent = DemoIntent.Unset; }
-        location = Locations[0];
-        InvalidatePreview();
-        ClearFilters();
-        selectedMeeting = meetings[0];
+        if (!IsGuidedReview || !session.SetIntent(selectedId, DemoIntent.Unset)) { return; }
+        session.SetSelected(selectedId, false);
+        AdvanceGuidedReview();
+    }
+    private void AdvanceGuidedReview()
+    {
+        guidedVisited.Add(selectedId);
+        var index = guidedQueue.IndexOf(selectedId);
+        var next = guidedQueue.Skip(index + 1).Concat(guidedQueue.Take(index + 1))
+            .FirstOrDefault(id => !guidedVisited.Contains(id));
+        if (next is not null) { ShowMeeting(next); }
+        else { Navigate("preview"); }
+    }
+    private void ConfirmLocation() { session.ConfirmLocation(); Navigate("meetings"); }
+    private void Approve() { if (session.ApproveAndSimulate()) { Navigate("results"); } }
+    private void Reset()
+    {
+        session.Reset();
+        activeFilter = "all";
+        search = "";
+        selectedId = "DEMO-01";
         showAttendees = false;
-        view = "meetings";
-        message = "Fresh demo ready. All sample choices, previews, and results reset.";
+        guidedQueue.Clear();
+        guidedVisited.Clear();
+        Navigate("home");
     }
-    private static List<DemoMeeting> CreateMeetings() =>
-    [
-        new("DEMO-01", "Design team catch-up", "Design & collaboration", new(2026, 11, 9, 16, 0, 0, TimeSpan.Zero), 30, ["Alex Chen", "Morgan Lee", "Taylor Brooks", "Sam Patel"], "A team catch-up might be anchored to the local working day. Its title alone cannot tell us whether that is true."),
-        new("DEMO-02", "Product roadmap workshop", "Planning", new(2026, 11, 10, 18, 0, 0, TimeSpan.Zero), 60, ["Alex Chen", "Riley Wilson", "Casey Jones"], "A workshop may depend on local office hours or another team’s schedule. Which matters here?"),
-        new("DEMO-03", "Cross-office project sync", "Cross-office collaboration", new(2026, 11, 11, 17, 30, 0, TimeSpan.Zero), 45, ["Morgan Lee", "Jordan Kim", "Avery Martin", "Drew Garcia", "Sam Patel"], "The cross-office title suggests another time anchor could matter. Keeping the instant may be intentional, but the title is not proof."),
-        new("DEMO-04", "Customer research readout", "Research", new(2026, 11, 12, 21, 0, 0, TimeSpan.Zero), 45, ["Taylor Brooks", "Casey Jones", "Alex Chen"], "This internal readout could follow the local afternoon. Confirm whether its local time or agreed instant should stay fixed."),
-        new("DEMO-05", "Launch readiness review", "Planning", new(2026, 11, 13, 16, 0, 0, TimeSpan.Zero), 60, ["Riley Wilson", "Jordan Kim", "Morgan Lee", "Avery Martin"], "A launch review may be linked to an external deadline. There is no deadline evidence in this sample, so neither intent can be assumed."),
-        new("DEMO-06", "Coffee & new ideas", "Team connection", new(2026, 11, 13, 22, 0, 0, TimeSpan.Zero), 30, ["Drew Garcia", "Sam Patel"], "An informal coffee might favor a familiar local time. That is only a mock hypothesis. You can leave it unresolved.")
-    ];
 }

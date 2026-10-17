@@ -1,46 +1,114 @@
-@using CalendarRemediation.Host.Review.Models
-@using static CalendarRemediation.Host.Review.Presentation.DemoDisplay
-
-<section class="page-heading">
+<div class="page-heading">
     <div>
-        <p class="eyebrow">START WITH THE PLACE</p>
-        <h1>Where does local mean?</h1>
-        <p>Choose a sample city to explore how a different rule changes a meeting.</p>
+        <p class="eyebrow">GET STARTED · LOCATION</p>
+        <h1>Your location</h1>
+        <p>Choose your review location. Confirm your choice before reviewing meetings.</p>
     </div>
-</section>
-<div class="location-grid">
-    @foreach (var city in Locations)
-    {
-        <button class="city-card @(city == Location ? "chosen" : "")" aria-pressed="@(city == Location)" @onclick="() => OnChooseLocation.InvokeAsync(city)">
-            <div class="city-art @city.Art" aria-hidden="true">
-                <span class="sun"></span>
-                <span class="mountain one"></span>
-                <span class="mountain two"></span>
-                <span class="skyline"></span>
-                <span class="water"></span>
-            </div>
-            <div class="city-content">
-                <span class="city-check">@(city == Location ? "✓" : "+")</span>
-                <h2>@city.City</h2>
-                <p>@city.Region</p>
-                <small>Source UTC@(Offset(city.SourceOffset)) → target UTC@(Offset(city.TargetOffset))</small>
-            </div>
-        </button>
-    }
+    <span class="status-badge @(Session.LocationConfirmed ? "green" : "amber")">
+        @(Session.LocationConfirmed ? "Confirmed" : "Confirmation needed")
+    </span>
 </div>
-<section class="panel rule-note">
-    <span class="stat-icon blue" aria-hidden="true">i</span>
+<section class="panel location-panel" aria-labelledby="location-heading">
     <div>
-        <h2>Made-up rules. Concrete comparisons.</h2>
-        <p>For November 9–13, 2026, this fixture assigns each city the fixed source and target offsets shown above. These are hypothetical inputs, not verified historical rules or a claim about any provincial transition policy.</p>
-        <p>Changing the city clears previous previews, results, and meeting intent choices. Confirm intent again for the new location.</p>
-        <button class="primary" @onclick="OnMeetings">Review meetings in @Location.City →</button>
+        <h2 id="location-heading">Where do you follow time?</h2>
+        <p>Choose manually. No browser location or time zone has been detected.</p>
     </div>
+    <fieldset class="province-fieldset">
+        <legend class="visually-hidden">Where do you follow time?</legend>
+        <div class="province-grid">
+            @foreach (var province in Provinces)
+            {
+                var selected = Session.Location.Region == province.Name;
+                <label class="province-card @(selected ? "selected" : null)" data-province="@province.Name">
+                    <input type="radio" name="sample-province" value="@province.Name"
+                           checked="@selected" @onchange="() => ChooseProvince(province.Name)"
+                           data-testid="sample-province-@province.Code" />
+                    <svg class="province-landscape" viewBox="0 0 360 112" aria-hidden="true" focusable="false">
+                        @if (province.Code == "BC")
+                        {
+                            <path d="M0 80 60 22l45 44 38-35 75 61 38-39 64 35v24H0Z" fill="#b9d5e8" />
+                            <path d="m60 22 18 18-18-5-17 15Zm83 9 24 20-24-7-20 11Z" fill="#fff" />
+                            <path d="M0 88q40-16 80 0t80 0 80 0 120 0v24H0Z" fill="#78aeb6" />
+                        }
+                        else if (province.Code == "AB")
+                        {
+                            <path d="M0 82 58 19l46 48 36-34 64 66 43-44 58 34 55-21v44H0Z" fill="#bfd7e7" />
+                            <path d="m58 19 20 21-20-6-17 13Zm82 14 22 21-22-7-18 10Z" fill="#fff" />
+                            <path d="M0 91q55-18 110 0t110 0 140 0v21H0Z" fill="#9abd80" />
+                        }
+                        else if (province.Code == "SK")
+                        {
+                            <path d="M0 71q45-13 90 0t90 0 90 0 90 0v41H0Z" fill="#b9d78d" />
+                            <path d="M0 86q45-10 90 0t90 0 90 0 90 0v26H0Z" fill="#e1c982" />
+                            <path d="M0 67h360v8q-45 12-90 0t-90 0-90 0-90 0Z" fill="#d7e9ed" />
+                        }
+                        else
+                        {
+                            <path d="M0 93h360v19H0Z" fill="#91b9a1" />
+                            <path d="M44 58h36v35H44Zm44-16h42v51H88Zm50 25h35v26h-35Zm43-35h46v61h-46Zm54 24h38v37h-38Zm47-12h42v49h-42Z" fill="#a8c0d0" />
+                            <path d="M0 94q60-15 120 0t120 0 120 0v18H0Z" fill="#78aeb6" />
+                        }
+                    </svg>
+                    <span class="province-card-content">
+                        <strong>@province.Name</strong>
+                        <span>@province.Description</span>
+                    </span>
+                </label>
+            }
+        </div>
+    </fieldset>
+    <div class="location-fields">
+        <label>
+            City or community
+            <select value="@Session.Location.City" @onchange="ChooseCity" data-testid="sample-city">
+                @foreach (var city in DemoReviewSession.Locations.Where(l => l.Region == Session.Location.Region))
+                {
+                    <option value="@city.City">@city.City</option>
+                }
+            </select>
+        </label>
+    </div>
+    <div class="location-summary">
+        <span aria-hidden="true"><AppIcon Name="AppIconName.Location" /></span>
+        <div>
+            <h3>@Session.Location.City, @Session.Location.Region</h3>
+            <p>
+                Source offset UTC@DemoDisplay.Offset(Session.Location.SourceOffset) <AppIcon Name="AppIconName.Next" />
+                comparison offset UTC@DemoDisplay.Offset(Session.Location.TargetOffset).
+            </p>
+        </div>
+    </div>
+    <p class="notice">
+        <strong>Check both offsets.</strong>
+        Your selected community determines the source and comparison offsets used throughout this review.
+    </p>
+    <p>Changing the community clears selection, time choices, assessments, previews and results immediately. You must confirm the new choice.</p>
+    <button class="primary" data-testid="confirm-location" @onclick="OnConfirm">
+        Confirm @Session.Location.City <AppIcon Name="AppIconName.Next" />
+    </button>
 </section>
 
 @code {
-    [Parameter, EditorRequired] public IReadOnlyList<DemoLocation> Locations { get; set; } = [];
-    [Parameter, EditorRequired] public DemoLocation Location { get; set; } = null!;
-    [Parameter] public EventCallback<DemoLocation> OnChooseLocation { get; set; }
-    [Parameter] public EventCallback OnMeetings { get; set; }
+    [Parameter, EditorRequired] public DemoReviewSession Session { get; set; } = null!;
+    [Parameter] public EventCallback OnConfirm { get; set; }
+
+    private static readonly (string Code, string Name, string Description)[] Provinces =
+    {
+        ("BC", "British Columbia", "Pacific coastline, islands and mountain communities."),
+        ("AB", "Alberta", "Rocky Mountain foothills and wide prairie landscapes."),
+        ("SK", "Saskatchewan", "Open prairie, lakes and close-knit communities."),
+        ("MB", "Manitoba", "Prairie landscapes, lakes and a lively urban centre.")
+    };
+
+    private void ChooseProvince(string region)
+    {
+        var location = DemoReviewSession.Locations.FirstOrDefault(l => l.Region == region);
+        if (location is not null) { Session.ChooseLocation(location); }
+    }
+
+    private void ChooseCity(ChangeEventArgs e)
+    {
+        var location = DemoReviewSession.Locations.FirstOrDefault(l => l.Region == Session.Location.Region && l.City == e.Value?.ToString());
+        if (location is not null) { Session.ChooseLocation(location); }
+    }
 }

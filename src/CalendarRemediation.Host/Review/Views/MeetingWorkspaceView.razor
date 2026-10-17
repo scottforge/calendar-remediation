@@ -1,38 +1,38 @@
-@using CalendarRemediation.Host.Review.Models
-@using static CalendarRemediation.Host.Review.Presentation.DemoDisplay
-
 <section class="page-heading">
     <div>
         <p class="eyebrow">A LITTLE CLARITY FOR YOUR CALENDAR</p>
         <h1>Make time match intent.</h1>
         <p>Review your meetings. Decide what should stay the same.</p>
     </div>
-    <button class="primary" @onclick="OnPreview">Preview changes ↗</button>
+    <div class="heading-actions">
+        <button class="primary" disabled="@(!Session.Meetings.Any(m => m.IsSupported && m.IsSelected))" @onclick="OnGuidedReview" data-testid="preview-changes">Preview changes <AppIcon Name="AppIconName.PreviewChanges" /></button>
+        <button class="secondary" @onclick="() => Express()" data-testid="express-review">Express</button>
+    </div>
 </section>
 <div class="stats-grid">
     <button class="stat-card" @onclick='() => OnFilter.InvokeAsync("all")'>
-        <span class="stat-icon blue" aria-hidden="true">▦</span>
-        <span><small>Sample meetings</small><strong>@Meetings.Count<small>in this workspace</small></strong></span>
+        <span class="stat-icon blue" aria-hidden="true"><AppIcon Name="AppIconName.Meetings" /></span>
+        <span><small>Meetings</small><strong>@Session.Meetings.Count<small>in this workspace</small></strong></span>
     </button>
-    <button class="stat-card" @onclick='() => OnFilter.InvokeAsync("review")'>
-        <span class="stat-icon amber" aria-hidden="true">◷</span>
-        <span><small>Needs your intent</small><strong>@Meetings.Count(m => m.Intent == DemoIntent.Unset)<small>ready to review</small></strong></span>
+    <button class="stat-card" @onclick='() => OnFilter.InvokeAsync("unset")'>
+        <span class="stat-icon amber" aria-hidden="true"><AppIcon Name="AppIconName.Pending" /></span>
+        <span><small>Needs your intent</small><strong>@Session.Meetings.Count(m => m.IsSupported && m.Intent == DemoIntent.Unset)<small>ready to review</small></strong></span>
     </button>
-    <button class="stat-card" @onclick='() => OnFilter.InvokeAsync("ready")'>
-        <span class="stat-icon green" aria-hidden="true">✓</span>
-        <span><small>Intent confirmed</small><strong>@Meetings.Count(m => m.Intent is DemoIntent.Local or DemoIntent.Instant)<small>included in preview</small></strong></span>
+    <button class="stat-card" @onclick='() => OnFilter.InvokeAsync("confirmed")'>
+        <span class="stat-icon green" aria-hidden="true"><AppIcon Name="AppIconName.Confirmed" /></span>
+        <span><small>Intent confirmed</small><strong>@Session.Meetings.Count(m => m.Intent is DemoIntent.Local or DemoIntent.Instant)<small>@Session.EligibleCount ready for preview</small></strong></span>
     </button>
 </div>
 <section class="location-strip">
-    <span class="location-marker" aria-hidden="true">⌖</span>
-    <div><strong>Your review location: @Location.City</strong><p>@Location.Region · Illustrative rule set only</p></div>
-    <button class="secondary" @onclick="OnLocations">Change location →</button>
+    <span class="location-marker" aria-hidden="true"><AppIcon Name="AppIconName.Location" /></span>
+    <div><strong>Your review location: @Session.Location.City</strong><p>@Session.Location.Region</p></div>
+    <button class="secondary" @onclick="OnLocations">Change location <AppIcon Name="AppIconName.Next" /></button>
 </section>
 <section class="panel meetings-panel" aria-labelledby="meetings-title">
     <div class="panel-heading">
         <div>
-            <h2 id="meetings-title">Your meetings <span class="count-badge">@Meetings.Count</span></h2>
-            <p>Single-instance samples · November 9–13, 2026 · You organize all meetings</p>
+            <h2 id="meetings-title">Your meetings <span class="count-badge">@Session.Meetings.Count</span></h2>
+            <p>November 9–13, 2026 · Organizer meetings · Complex recurrence excluded</p>
         </div>
         <span class="subtle-tag">Internal attendees</span>
     </div>
@@ -44,46 +44,103 @@
             }
         </div>
         <label class="search-box">
-            <span aria-hidden="true">⌕</span>
-            <span class="sr-only">Search meetings or attendees</span>
-            <input type="search" placeholder="Search meetings…" value="@Search" @oninput='args => OnSearch.InvokeAsync(args.Value?.ToString() ?? "")' />
+            <span aria-hidden="true"><AppIcon Name="AppIconName.Search" /></span><span class="sr-only">Search meetings or attendees</span>
+            <input type="search" placeholder="Search meetings…" value="@Search" data-testid="meeting-search" @oninput='e => OnSearch.InvokeAsync(e.Value?.ToString() ?? "")' />
         </label>
     </div>
     <div class="meeting-list">
-        @foreach (var meeting in FilteredMeetings)
+        @foreach (var meeting in VisibleMeetings)
         {
-            <button class="meeting-row" @onclick="() => OnOpenMeeting.InvokeAsync(meeting)">
-                <span class="date-tile"><small>NOV</small><strong>@meeting.Start.Day</strong></span>
-                <span class="meeting-name"><strong>@meeting.Title</strong><small>@meeting.Category · @meeting.Attendees.Length attendees</small></span>
-                <span class="meeting-time"><strong>@SourceTime(meeting, Location)</strong><small>@meeting.Duration min · source local</small></span>
-                <span class="status-badge @StatusClass(meeting)">● @StatusLabel(meeting)</span>
-                <span class="row-arrow" aria-hidden="true">→</span>
-            </button>
+            <article class="meeting-row" data-meeting="@meeting.Id" @key="meeting.Id">
+                <input class="selection" type="checkbox" checked="@meeting.IsSelected" disabled="@(!meeting.IsSupported)" @onchange="e => Session.SetSelected(meeting.Id, e.Value is true)" aria-label="Select @meeting.Title" data-testid="select-@meeting.Id" />
+                <span class="date-tile"><small>@meeting.Start.ToString("MMM", DemoDisplay.Culture).ToUpperInvariant()</small><strong>@meeting.Start.Day</strong></span>
+                <div class="meeting-name">
+                    <button class="meeting-title" @onclick="() => OnOpenMeeting.InvokeAsync(meeting.Id)">@meeting.Title</button>
+                    <small>@meeting.Category · @meeting.Attendees.Length attendees</small>
+                    <small>@meeting.RecurrenceScope</small>
+                    @if (meeting.Assessment.Kind != DemoAssessmentKind.NotAssessed)
+                    {
+                        <small class="assessment" data-assessment="@meeting.Assessment.Kind">@meeting.Assessment.Label · rule-based</small>
+                    }
+                </div>
+                <span class="meeting-time"><strong>@DemoDisplay.SourceTime(meeting, Session.Location)</strong><small>@meeting.Duration min · source local</small></span>
+                <span class="status-badge @(meeting.IsSupported ? DemoDisplay.StatusClass(meeting) : "neutral")">@(meeting.IsSupported ? DemoDisplay.StatusLabel(meeting) : "Unsupported")</span>
+                <div class="row-actions">
+                    <button class="text-button" disabled="@(!Session.SampleAssistanceEnabled)" @onclick="() => Assist(meeting.Id)" aria-label="Review @meeting.Title with rule-based assistance"><AppIcon Name="AppIconName.Assistance" /> Assist</button>
+                    <button class="text-button" disabled="@(!meeting.IsSupported || meeting.Intent == DemoIntent.Skip)" @onclick="() => Express(meeting.Id)" aria-label="Express preview for @meeting.Title">Express <AppIcon Name="AppIconName.Express" /></button>
+                </div>
+            </article>
         }
-        @if (FilteredMeetings.Count == 0)
+        @if (!VisibleMeetings.Any())
         {
-            <div class="empty-state">
-                <h3>No meetings match</h3>
-                <p>Try a different search or show all sample meetings.</p>
-                <button class="secondary" @onclick="OnClearFilters">Clear search &amp; filters</button>
-            </div>
+            <div class="empty-state"><h3>No meetings match</h3><p>Your selections are kept. Try another search or show all meetings.</p><button class="secondary" @onclick="ClearSearch">Clear search &amp; filters</button></div>
         }
     </div>
-    <div class="table-footer"><span>@FilteredMeetings.Count of @Meetings.Count sample meetings</span><span>Only your confirmed choices enter a preview.</span></div>
+    <div class="table-footer">
+        <span>@VisibleMeetings.Count() of @Session.Meetings.Count meetings · @Session.SelectedCount selected</span>
+        <button class="text-button" @onclick="SelectAll" data-testid="select-all-scope">Select all supported in full scope (5)</button>
+        <button class="text-button" @onclick="() => Session.DeselectAll()">Deselect all</button>
+    </div>
 </section>
-<p class="footnote">♧ Private by design in this demo. Choices live only in your current connection.</p>
+<p class="footnote">Manage review suggestions in Account &amp; AI.</p>
 
 @code {
-    [Parameter, EditorRequired] public IReadOnlyList<DemoMeeting> Meetings { get; set; } = [];
-    [Parameter, EditorRequired] public IReadOnlyList<DemoMeeting> FilteredMeetings { get; set; } = [];
-    [Parameter, EditorRequired] public DemoLocation Location { get; set; } = null!;
-    [Parameter, EditorRequired] public IReadOnlyList<(string Key, string Label)> Filters { get; set; } = [];
-    [Parameter] public string ActiveFilter { get; set; } = "all";
+    [Parameter, EditorRequired] public DemoReviewSession Session { get; set; } = null!;
     [Parameter] public string Search { get; set; } = "";
-    [Parameter] public EventCallback<string> OnFilter { get; set; }
+    [Parameter] public string ActiveFilter { get; set; } = "all";
     [Parameter] public EventCallback<string> OnSearch { get; set; }
-    [Parameter] public EventCallback OnClearFilters { get; set; }
-    [Parameter] public EventCallback<DemoMeeting> OnOpenMeeting { get; set; }
+    [Parameter] public EventCallback<string> OnFilter { get; set; }
+    [Parameter] public EventCallback<string> OnOpenMeeting { get; set; }
     [Parameter] public EventCallback OnPreview { get; set; }
+    [Parameter] public EventCallback OnGuidedReview { get; set; }
+    [Parameter] public EventCallback OnAssistedReview { get; set; }
     [Parameter] public EventCallback OnLocations { get; set; }
+
+    private static readonly (string Key, string Label)[] Filters =
+        [("all", "All meetings"), ("unset", "Needs intent"), ("confirmed", "Confirmed"), ("selected", "Selected"), ("unsupported", "Unsupported")];
+
+    private IEnumerable<DemoMeeting> VisibleMeetings => Session.Meetings.Where(m => (ActiveFilter switch
+    {
+        "selected" => m.IsSelected,
+        "unset" => m.IsSupported && m.Intent == DemoIntent.Unset,
+        "confirmed" => m.Intent is DemoIntent.Local or DemoIntent.Instant,
+        "unsupported" => !m.IsSupported,
+        _ => true
+    }) && (string.IsNullOrWhiteSpace(Search) || m.Title.Contains(Search, StringComparison.OrdinalIgnoreCase) ||
+        m.Category.Contains(Search, StringComparison.OrdinalIgnoreCase) ||
+        m.Attendees.Any(a => a.Contains(Search, StringComparison.OrdinalIgnoreCase))));
+
+    private async Task Assist(string id)
+    {
+        if (!Session.AnalyzeSamples()) { return; }
+        Session.SetMode(DemoReviewMode.Assisted);
+        await OnOpenMeeting.InvokeAsync(id);
+    }
+
+    private async Task Express(string? id = null)
+    {
+        var candidates = id is not null ? Session.Meetings.Where(m => m.Id == id) :
+            Session.Meetings.Where(m => m.IsSelected);
+        var expressibleMeetings = candidates.Where(m => m.IsSupported && m.Intent != DemoIntent.Skip).ToList();
+        if (!expressibleMeetings.Any()) { return; }
+
+        Session.SetMode(DemoReviewMode.Express);
+        foreach (var meeting in expressibleMeetings)
+        {
+            Session.SelectExpress(meeting.Id, true);
+        }
+        await OnPreview.InvokeAsync();
+    }
+
+    private void SelectAll()
+    {
+        Session.SetMode(DemoReviewMode.Guided);
+        Session.SelectAllInScope();
+    }
+
+    private async Task ClearSearch()
+    {
+        await OnSearch.InvokeAsync("");
+        await OnFilter.InvokeAsync("all");
+    }
 }

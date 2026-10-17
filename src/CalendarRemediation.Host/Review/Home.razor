@@ -2,85 +2,112 @@
 @using Microsoft.AspNetCore.Components.Web
 @using CalendarRemediation.Host.Review.Views
 
-<PageTitle>Calendar Remediation · Demo workspace</PageTitle>
+<PageTitle>Calendar Remediation · @ViewTitle</PageTitle>
 <div class="app-shell" data-workspace="calendar-remediation">
     <aside class="sidebar" aria-label="Workspace navigation">
-        <a class="wordmark" href="/"><span class="brand-icon" aria-hidden="true">cr</span><span>calendar<small>remediation</small></span></a>
-        <p class="workspace-label">YOUR WORKSPACE</p>
+        <a class="wordmark" href="/">
+            <span class="brand-icon" aria-hidden="true">cr</span>
+            <span>calendar<small>remediation</small></span>
+        </a>
+        <p class="workspace-label">WORKSPACE</p>
         <nav>
             @foreach (var item in Navigation)
             {
-                <button class="nav-item @(view == item.Key ? "active" : "")" aria-current="@(view == item.Key ? "page" : null)" @onclick="() => Navigate(item.Key)">
-                    <span aria-hidden="true">@item.Icon</span>@item.Label
-                    @if (item.Key == "meetings")
-                    {
-                        <small>@meetings.Count</small>
-                    }
+                <button class="nav-item @(view == item.Key || (view == "detail" && item.Key == "meetings") ? "active" : "")"
+                        aria-current="@(view == item.Key || (view == "detail" && item.Key == "meetings") ? "page" : null)" data-nav="@item.Key"
+                        @onclick="() => Navigate(item.Key)">
+                    <span aria-hidden="true"><AppIcon Name="@item.Icon" /></span>@item.Label
+                </button>
+            }
+            @if (session.HasResults)
+            {
+                <button class="nav-item @(view == "results" ? "active" : "")" @onclick='() => Navigate("results")'>
+                    <span aria-hidden="true"><AppIcon Name="AppIconName.Confirmed" /></span>Simulation results
                 </button>
             }
         </nav>
         <div class="sidebar-bottom">
             <div class="sidebar-tip">
-                <span aria-hidden="true">✧</span>
                 <strong>Your intent. Your decision.</strong>
-                <p>Understand the difference before making a change.</p>
+                <p>Review suggestions. Approve the exact batch.</p>
             </div>
-            <button class="nav-item" @onclick='() => Navigate("help")'><span aria-hidden="true">?</span>Help &amp; demo guide</button>
             <div class="profile">
                 <span class="avatar">JD</span>
-                <div><strong>Jamie Davis</strong><small>Sample organizer</small></div>
-                <span class="demo-small">DEMO</span>
+                <div>
+                    <strong>Jamie Davis</strong>
+                    <small>Workspace profile</small>
+                </div>
+                <span class="demo-small">PROFILE</span>
             </div>
         </div>
     </aside>
     <div class="main-shell">
         <header class="topbar">
-            <div><span>Workspace</span><span class="crumb-divider">/</span><strong>@ViewTitle</strong></div>
-            <span class="session-pill">● Demo session</span>
+            <div>
+                <span>Workspace</span><span class="crumb-divider">/</span><strong>@ViewTitle</strong>
+            </div>
+            <span class="session-pill"><AppIcon Name="AppIconName.SessionActive" /> Current session</span>
         </header>
         <main id="main-content" class="content" tabindex="-1" @ref="mainContent">
             <div class="demo-banner">
-                <span class="banner-icon" aria-hidden="true">i</span>
-                <p><strong>A safe space to explore.</strong> Meetings, AI suggestions, time rules, and results are illustrative. No calendar is connected or changed.</p>
-                <button class="text-button" @onclick='() => Navigate("help")'>About this demo ↗</button>
+                <span class="banner-icon" aria-hidden="true"><AppIcon Name="AppIconName.Information" /></span>
+                <p>
+                    <strong>This workspace uses synthetic meetings and preset time offsets, not verified local time rules.</strong>
+                    No account, calendar or model is connected here. Approval simulates changes only.
+                    Choices reset in a new session. Live, read-only calendar access is separate in <a href="/connect" data-enhance-nav="false">Connect Microsoft 365</a>.
+                </p>
             </div>
-            @if (!string.IsNullOrEmpty(message))
+            <div class="@(string.IsNullOrEmpty(session.Message) ? "sr-only" : "feedback")"
+                 role="status" aria-live="polite" aria-atomic="true" data-testid="session-status">
+                @session.Message
+            </div>
+            @if (view == "home")
             {
-                <div class="feedback" role="status">@message</div>
+                <WelcomeView OnStart='() => Navigate("locations")' OnAccount='() => Navigate("account")'
+                             OnHelp='() => Navigate("help")' />
             }
-            @if (view == "meetings")
+            else if (view == "account")
             {
-                <MeetingWorkspaceView Meetings="meetings" FilteredMeetings="FilteredMeetings.ToArray()" Location="location"
-                                      Filters="Filters" ActiveFilter="@activeFilter" Search="@search"
-                                      OnFilter="SetFilter" OnSearch="@(value => search = value)" OnClearFilters="ClearFilters"
-                                      OnOpenMeeting="OpenMeeting" OnPreview="OpenPreview" OnLocations='@(() => Navigate("locations"))' />
+                <AccountView Session="session" OnStart='() => Navigate("locations")'
+                             OnHelp='() => Navigate("help")' />
             }
             else if (view == "locations")
             {
-                <LocationsView Locations="Locations" Location="location" OnChooseLocation="ChooseLocation" OnMeetings='@(() => Navigate("meetings"))' />
+                <LocationsView Session="session" OnConfirm="ConfirmLocation" />
+            }
+            else if (view == "meetings")
+            {
+                <MeetingWorkspaceView Session="session" Search="@search" ActiveFilter="@activeFilter"
+                                      OnSearch="@(value => search = value)" OnFilter="@(value => activeFilter = value)"
+                                      OnOpenMeeting="OpenMeeting" OnGuidedReview="StartGuidedReview" OnAssistedReview="StartAssistedReview"
+                                      OnLocations='() => Navigate("locations")' OnPreview='() => Navigate("preview")' />
             }
             else if (view == "detail")
             {
-                <MeetingReviewView Meeting="selectedMeeting" Location="location" MeetingNumber="@(meetings.IndexOf(selectedMeeting) + 1)"
-                                   MeetingCount="meetings.Count" ShowAttendees="showAttendees"
-                                   OnToggleAttendees="@(() => showAttendees = !showAttendees)" OnIntent="SetIntent"
-                                   OnMove="MoveMeeting" OnPreview="OpenPreview" OnMeetings='@(() => Navigate("meetings"))' />
+                <MeetingReviewView Session="session" Meeting="session.Find(selectedId)!" ShowAttendees="showAttendees"
+                                   IsGuided="IsGuidedReview" QueuePosition="GuidedPosition" QueueCount="guidedQueue.Count"
+                                   IsLastChoice="IsLastGuidedChoice" OnSaveChoice="SaveGuidedChoice" OnSkipForNow="SkipGuidedChoice"
+                                   OnToggleAttendees="() => showAttendees = !showAttendees" OnMove="MoveMeeting"
+                                   OnPreview='() => Navigate("preview")' OnMeetings='() => Navigate("meetings")' />
             }
             else if (view == "preview")
             {
-                <ChangePreviewView Preview="preview" MeetingCount="meetings.Count" Location="location" BatchVersion="batchVersion"
-                                   OnMeetings='@(() => Navigate("meetings"))' OnReview="ReviewNext" OnApprove="ApproveDemo" />
+                <ChangePreviewView Session="session" OnEdit="OpenMeeting"
+                                   OnMeetings='() => Navigate("meetings")' OnApprove="Approve" />
             }
             else if (view == "results")
             {
-                <DemoResultsView HasResults="hasResults" Preview="preview" MeetingCount="meetings.Count" Location="location"
-                                 OnMeetings='@(() => Navigate("meetings"))' OnPreview="OpenPreview" OnReset="ResetDemo" />
+                <DemoResultsView Session="session" OnMeetings='() => Navigate("meetings")'
+                                 OnReset="Reset" />
             }
             else if (view == "help")
             {
-                <HelpView OnExplore="@(() => Navigate("meetings"))" OnReset="ResetDemo" />
+                <HelpView OnExplore='() => Navigate("locations")' OnReset="Reset" />
             }
-            <footer class="workspace-footer"><span>Calendar Remediation</span><span>Designed around intent. Always reviewed by you.</span></footer>
+            <footer class="workspace-footer">
+                <span>Calendar Remediation</span>
+                <span>Your intent. Exact times. Explicit approval.</span>
+            </footer>
         </main>
     </div>
 </div>

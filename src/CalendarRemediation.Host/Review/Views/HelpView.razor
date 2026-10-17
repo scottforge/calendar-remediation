@@ -1,48 +1,83 @@
-<section class="page-heading">
+<div class="page-heading">
     <div>
-        <p class="eyebrow">A QUICK ORIENTATION</p>
-        <h1>A thoughtful review, at your pace.</h1>
-        <p>Explore any section. There’s no mandatory sequence or hidden change.</p>
+        <p class="eyebrow">HELP · MEETING REVIEW</p>
+        <h1>How review works</h1>
+        <p>Choose your location, confirm meeting intent and review exact times before approval.</p>
     </div>
-</section>
-
+</div>
 <div class="help-grid">
     <section class="panel help-card">
-        <h2>How to explore</h2>
-        <ol>
-            <li>Choose an illustrative city and inspect its fixture offsets.</li>
-            <li>Compare a meeting’s local time with its stored UTC instant.</li>
-            <li>Confirm intent, skip, or leave the question open.</li>
-            <li>Preview the exact batch and approve a simulation.</li>
-        </ol>
-        <button class="primary" @onclick="OnExplore">Explore the meetings →</button>
+        <h2>Start with a community</h2>
+        <p>
+            Your location offers communities in British Columbia, Alberta, Saskatchewan and Manitoba.
+            Choose manually and explicitly confirm before Meetings opens. No location is detected.
+        </p>
+        <p>
+            Changing your community clears all review decisions and asks for confirmation again.
+        </p>
     </section>
-
     <section class="panel help-card">
-        <h2>What is real here?</h2>
-        <p>Controls, per-meeting choices, filtering, comparisons, and navigation work. People, AI hypotheses, rules, and outcomes are synthetic.</p>
-        <p>Side effects stay in this Interactive Server circuit. Nothing is saved to a database or sent to a calendar or model. A fresh connection resets this demo.</p>
-        <button class="secondary" @onclick="OnReset">Reset sample workspace ↻</button>
+        <h2>One list, three approaches</h2>
+        <p>
+            Meetings contains six organizer meetings starting November 9–13, 2026.
+            Search and filters do not change the full selection scope.
+            Select all includes all five supported meetings, including hidden matches.
+        </p>
+        <p>
+            Guided review asks you to choose a time for each meeting. Express selection supplies a local-time target for undecided meetings.
+            All approaches share selection, preview and approval.
+        </p>
     </section>
-
     <section class="panel help-card">
-        <h2>Calendar connection status</h2>
-        <span class="status-badge amber">Not connected</span>
-        <p>The separate command-line runner supports Windows sign-in and bounded Graph read probes. This web workspace does not acquire credentials or change meetings.</p>
-        <a class="text-link" href="/feasibility">View calendar pilot feasibility ↗</a>
+        <h2>Assistance only when you ask</h2>
+        <p>
+            Meetings start as Not assessed. Request rule-based suggestions to see proposed local-time choices, no-change recommendations and unresolved or unsupported meetings.
+            Applying local-time suggestions fills untouched meetings only and never replaces manual decisions.
+        </p>
+        <p>
+            Manage review suggestions and check connection information in Account &amp; AI.
+            Turning suggestions on or off resets review decisions. Manual review remains available.
+        </p>
     </section>
-
     <section class="panel help-card">
-        <h2>Before a real pilot</h2>
-        <p>UTC timestamps alone do not establish intent. Production evaluation needs confirmed source rules, applicable locality, current eligibility, exact approval, and atomic guarded writes.</p>
-        <p>This demo does not prove provider support, retry safety, invitation delivery, or transition policy. Samples are organizer-owned single instances with internal attendees.</p>
+        <h2>Exact review before simulation</h2>
+        <p>
+            Selecting a meeting and choosing its time are separate decisions.
+            Only selected, supported meetings with a local-time or worldwide-time choice enter preview.
+            Unresolved selections block approval. Skip removes a meeting from the batch.
+        </p>
+        <p>
+            Final review shows exact local and UTC starts and ends. The weekly series covers November 10, 17 and 24 only.
+            Complex recurrence is excluded. Notification effects are unknown and not simulated.
+        </p>
     </section>
+    <section class="panel help-card">
+        <h2>Your choices stay in this session</h2>
+        <p>
+            There is no permanent save or history. A new session or reset starts fresh.
+            Selection, intent, location, analysis and assistance changes clear stale previews and simulation results.
+            Switching modes preserves your choices. Reopening an unchanged preview preserves its version and any simulation results.
+        </p>
+        <p>Approval simulates only the exact batch shown. No provider request, invitation, retry or revert happens.</p>
+    </section>
+    <section class="panel help-card">
+        <h2>Which time should I choose?</h2>
+        <p>
+            “Keep my local time” preserves the source clock time in your selected community using the comparison offset.
+            “Keep the same worldwide moment” keeps the stored UTC time and may show a different local time.
+        </p>
+        <p>
+            A title or UTC timestamp cannot establish your intent. Choose “I'm not sure yet” when you need more context.
+            Neither uncertainty nor an unsupported series is treated as a recommendation to change.
+        </p>
+    </section>
+</div>
+<div class="detail-actions">
+    <button class="primary" @onclick="OnExplore">Choose location <AppIcon Name="AppIconName.Next" /></button>
+    <button class="secondary" @onclick="OnReset">Reset workspace</button>
 </div>
 
 @code {
-    [Parameter]
-    public EventCallback OnExplore { get; set; }
-
-    [Parameter]
-    public EventCallback OnReset { get; set; }
+    [Parameter] public EventCallback OnExplore { get; set; }
+    [Parameter] public EventCallback OnReset { get; set; }
 }
