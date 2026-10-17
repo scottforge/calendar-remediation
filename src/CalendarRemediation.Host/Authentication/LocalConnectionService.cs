@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using System.Security.Cryptography;
 using CalendarRemediation.Core.Discovery;
+using CalendarRemediation.Core.Planning;
 using Microsoft.Identity.Client;
 
 namespace CalendarRemediation.Host.Authentication;
@@ -111,14 +112,16 @@ public sealed class LocalConnectionService(ILocalIdentityClient identity, ILocal
         lock (_sync)
         {
             var session = RequireConnected(principal, version);
-            var confirmedLocation = ValidateLocation(location);
+            location = ValidateLocation(location);
             session.Operation?.Cancel();
-            session.Location = confirmedLocation;
             session.Discovery = null;
+            session.DiscoveryResult = null;
+            session.Preview = null;
             session.Problem = null;
             session.Phase = ConnectionPhase.Connected;
             // A completed old discovery cannot publish into this location generation.
             session.Revision++;
+            session.Location = location;
         }
     }
 
@@ -138,12 +141,55 @@ public sealed class LocalConnectionService(ILocalIdentityClient identity, ILocal
         lock (_sync)
         {
             var session = RequireConnected(principal, version);
+            session.Preview = null;
             if (session.Location is null) { throw new ConnectionException(new("location-required", "Confirm your location before reading calendar data.")); }
             if (session.Phase == ConnectionPhase.Discovering) { throw new ConnectionException(new("busy", "A calendar read is already running.")); }
             session.Phase = ConnectionPhase.Discovering;
             session.Discovery = null;
+            session.DiscoveryResult = null;
             session.Problem = null;
             Track(session, ct => DiscoverAsync(session, session.Revision, ct));
+        }
+    }
+
+    internal void ClearPreview(ClaimsPrincipal principal, string version)
+    {
+        lock (_sync) { Require(principal, version).Preview = null; }
+    }
+
+    public void PreviewMeeting(ClaimsPrincipal principal, string version, string eventId,
+        DateTime intendedLocalStart, string timeZoneId, bool preserveInstant)
+    {
+        lock (_sync)
+        {
+            var session = Require(principal, version);
+            session.Preview = null;
+            RequireConnected(principal, version);
+            if (session.Phase != ConnectionPhase.Connected || session.DiscoveryResult is not { Complete: true } discovery
+                || session.DiscoveryRevision != session.Revision)
+            {
+                throw new ConnectionException(new("discovery-required", "Complete a current calendar read before previewing a meeting."));
+            }
+            if (session.Location is not { } location || !string.Equals(location.TimeZoneId, timeZoneId, StringComparison.Ordinal))
+            {
+                throw new ConnectionException(new("invalid-zone", "Use the time zone from your confirmed location."));
+            }
+            var matches = discovery.Events.Where(e => string.Equals(e.Id, eventId, StringComparison.Ordinal)).Take(2).ToArray();
+            var mailbox = session.Mailbox!;
+            if (string.IsNullOrWhiteSpace(eventId) || matches.Length != 1 || matches[0].IsOrganizer != true
+                || matches[0].Identity != mailbox.Identity || discovery.Scope.Identity != mailbox.Identity
+                || matches[0].Start is not { } start || start < discovery.Scope.Start || start >= discovery.Scope.End)
+            {
+                throw new ConnectionException(new("invalid-meeting", "Choose one organizer-owned meeting from the current calendar read."));
+            }
+            TimeZoneInfo zone;
+            try { zone = TimeZoneInfo.FindSystemTimeZoneById(location.TimeZoneId); }
+            catch (Exception ex) when (ex is TimeZoneNotFoundException or InvalidTimeZoneException)
+            {
+                throw new ConnectionException(new("zone-unavailable", "The confirmed time zone is unavailable on this machine. Choose another location time zone."));
+            }
+            session.Preview = ReadOnlyMeetingPreview.Calculate(matches[0], intendedLocalStart, zone, preserveInstant, DateTimeOffset.UtcNow);
+            session.Problem = null;
         }
     }
 
@@ -155,6 +201,8 @@ public sealed class LocalConnectionService(ILocalIdentityClient identity, ILocal
             session.Revision++;
             session.Operation?.Cancel();
             session.Discovery = null;
+            session.DiscoveryResult = null;
+            session.Preview = null;
             session.Problem = new("cancelled", "The operation was cancelled.");
             if (session.Phase is ConnectionPhase.SigningIn or ConnectionPhase.AwaitingCompletion)
             {
@@ -217,6 +265,8 @@ public sealed class LocalConnectionService(ILocalIdentityClient identity, ILocal
             RequireCurrent(session);
             ct.ThrowIfCancellationRequested();
             if (session.Revision != revision) { return; }
+            session.DiscoveryResult = result;
+            session.DiscoveryRevision = revision;
             session.Discovery = new(start, scope.End, result.Complete, result.Events.Length,
                 [.. result.Events.Where(e => e.IsOrganizer == true).Take(500)
                     .Select(e => new ConnectionMeeting(e.Id, e.Start, e.End, e.Organizer, e.Kind, e.Attendees.Length))], result.Holds);
@@ -259,6 +309,8 @@ public sealed class LocalConnectionService(ILocalIdentityClient identity, ILocal
                         session.Problem = Problem(ex);
                         session.Phase = session.Account is null ? ConnectionPhase.Failed : ConnectionPhase.Connected;
                         session.Discovery = null;
+                        session.DiscoveryResult = null;
+                        session.Preview = null;
                     }
                 }
             }
@@ -300,7 +352,7 @@ public sealed class LocalConnectionService(ILocalIdentityClient identity, ILocal
 
     private ConnectionState State(Session session) => new(session.Version,
         identity.Unavailable is null ? session.Phase : ConnectionPhase.Disabled, session.CachedAccount,
-        session.Mailbox, session.Location, TimeZoneInfo.Local.Id, session.Discovery, identity.Unavailable ?? session.Problem);
+        session.Mailbox, session.Location, TimeZoneInfo.Local.Id, session.Discovery, identity.Unavailable ?? session.Problem, session.Preview);
 
     private static ConnectionTicket Ticket(Session session) => new(session.Id, session.Version,
         session.Phase is ConnectionPhase.Connected or ConnectionPhase.Discovering ? session.Mailbox : null);
@@ -353,6 +405,9 @@ public sealed class LocalConnectionService(ILocalIdentityClient identity, ILocal
         public VerifiedMailbox? Mailbox { get; set; }
         public ConfirmedLocation? Location { get; set; }
         public ConnectionDiscovery? Discovery { get; set; }
+        public DiscoveryResult? DiscoveryResult { get; set; }
+        public int DiscoveryRevision { get; set; }
+        public MeetingTimePreview? Preview { get; set; }
         public ConnectionProblem? Problem { get; set; }
         public CancellationTokenSource? Operation { get; set; }
         public int Revision { get; set; }

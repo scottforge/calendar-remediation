@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using CalendarRemediation.Core.Discovery;
+using CalendarRemediation.Core.Planning;
 
 namespace CalendarRemediation.Host.Authentication;
 
@@ -21,7 +22,7 @@ public sealed record ConnectionDiscovery(DateTimeOffset Start, DateTimeOffset En
     int ObservedEvents, ImmutableArray<ConnectionMeeting> OrganizerMeetings, ImmutableArray<string> Holds);
 public sealed record ConnectionState(string Version, ConnectionPhase Phase, string? CachedAccount,
     VerifiedMailbox? Mailbox, ConfirmedLocation? Location, string SuggestedTimeZoneId,
-    ConnectionDiscovery? Discovery, ConnectionProblem? Problem);
+    ConnectionDiscovery? Discovery, ConnectionProblem? Problem, MeetingTimePreview? Preview = null);
 
 // Tokens stay inside these server-side seams. They are never part of a state DTO.
 public interface ILocalIdentityClient : IDisposable

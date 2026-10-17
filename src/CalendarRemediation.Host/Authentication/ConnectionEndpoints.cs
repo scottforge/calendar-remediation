@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net;
 using System.Security.Claims;
 using System.Text.Json.Serialization;
@@ -56,7 +57,7 @@ public static class ConnectionEndpoints
             return;
         }
         var request = context.Request;
-        if (request.Path.StartsWithSegments("/connection"))
+        if (request.Path.StartsWithSegments("/connection") || request.Path == "/" || request.Path == "/connect")
         {
             context.Response.Headers.CacheControl = "no-store";
             context.Response.Headers.Pragma = "no-cache";
@@ -109,6 +110,26 @@ public static class ConnectionEndpoints
         MapAction(app, "discover", (context, connection, form) =>
         {
             connection.StartDiscovery(context.User, form["version"].ToString());
+            return Task.CompletedTask;
+        });
+        MapAction(app, "preview", (context, connection, form) =>
+        {
+            var version = form["version"].ToString();
+            connection.ClearPreview(context.User, version);
+            var mode = form["mode"].ToString();
+            if (mode is not ("local" or "instant"))
+            {
+                throw new ConnectionException(new("invalid-mode", "Choose a local time or keep the current instant."));
+            }
+            var localStart = default(DateTime);
+            if (mode == "local" && !DateTime.TryParseExact(form["localStart"].ToString(),
+                ["yyyy-MM-dd'T'HH:mm", "yyyy-MM-dd'T'HH:mm:ss"], CultureInfo.InvariantCulture,
+                DateTimeStyles.None, out localStart))
+            {
+                throw new ConnectionException(new("invalid-time", "Enter a local date and time in the meeting preview form."));
+            }
+            connection.PreviewMeeting(context.User, version, form["eventId"].ToString(), localStart,
+                form["timeZoneId"].ToString(), mode == "instant");
             return Task.CompletedTask;
         });
         MapAction(app, "signout", async (context, connection, form) =>
