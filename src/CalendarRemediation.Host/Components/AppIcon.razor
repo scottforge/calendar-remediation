@@ -1,0 +1,33 @@
+@using LucideBlazor
+
+<LucideIcon Name="@Glyph" Size="@(Name == AppIconName.SessionActive ? 8 : 24)"
+            Stroke="currentColor" StrokeWidth="2" Fill="@(Name == AppIconName.SessionActive ? "currentColor" : "none")"
+            ClassName="ui-icon" aria-hidden="true" focusable="false" />
+
+@code {
+    [Parameter, EditorRequired] public AppIconName Name { get; set; }
+
+    private string Glyph => Name switch
+    {
+        AppIconName.Home => "house",
+        AppIconName.Account => "user-round",
+        AppIconName.Location => "map-pin",
+        AppIconName.Meetings => "calendar-days",
+        AppIconName.Preview => "clipboard-list",
+        AppIconName.Help => "circle-question-mark",
+        AppIconName.Assistance => "sparkles",
+        AppIconName.Search => "search",
+        AppIconName.Confirmed => "check",
+        AppIconName.Pending or AppIconName.LocalTime => "clock",
+        AppIconName.WorldwideTime => "globe",
+        AppIconName.Back => "arrow-left",
+        AppIconName.Next => "arrow-right",
+        AppIconName.PreviewChanges or AppIconName.Express => "arrow-up-right",
+        AppIconName.Expand => "arrow-down",
+        AppIconName.Collapse => "arrow-up",
+        AppIconName.Dismiss => "x",
+        AppIconName.Information => "info",
+        AppIconName.SessionActive => "circle",
+        _ => throw new ArgumentOutOfRangeException(nameof(Name), Name, "Unknown application icon.")
+    };
+}
