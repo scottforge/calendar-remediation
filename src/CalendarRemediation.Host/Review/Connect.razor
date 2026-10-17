@@ -1,0 +1,230 @@
+@page "/connect"
+@layout CalendarRemediation.Host.Review.Connect.ConnectionLayout
+@using CalendarRemediation.Host.Authentication
+@using Microsoft.AspNetCore.Components.Forms
+@using Microsoft.AspNetCore.Components.Web
+
+<PageTitle>Connect Microsoft 365 · Calendar Remediation</PageTitle>
+<a class="skip-link" href="#connection-content">Skip to connection</a>
+<div class="connection-shell">
+    <header class="connection-header">
+        <a href="/" data-enhance-nav="false">← Workspace</a>
+        <span class="status-badge neutral">LIVE · READ ONLY</span>
+    </header>
+    <main id="connection-content" tabindex="-1">
+        <div class="page-heading">
+            <div>
+                <p class="eyebrow">LOCAL CONNECTION</p>
+                <h1>Connect Microsoft 365</h1>
+                <p>Read your calendar separately from the review workspace.</p>
+            </div>
+        </div>
+        <div class="connection-notice">
+            <strong>This is live, read-only data.</strong>
+            Sign-in requests User.Read and Calendars.Read. No meetings are changed, no invitations are sent,
+            and no meeting data is sent to a model. Workspace choices do not apply here.
+        </div>
+        <p role="status" aria-live="polite" aria-atomic="true">@StatusText</p>
+        @if (_refreshError is not null)
+        {
+            <div class="connection-error" role="alert">
+                <p>@_refreshError</p>
+                <a href="/connect" data-enhance-nav="false">Reload connection status</a>
+            </div>
+        }
+        @if (_state is { } state)
+        {
+            @if (state.Problem is { } problem)
+            {
+                <div class="connection-error" role="alert"><strong>@problem.Code</strong>: @problem.Message</div>
+            }
+            @if (state.Phase == ConnectionPhase.Disabled)
+            {
+                <section class="panel connection-card" aria-labelledby="setup-heading">
+                    <h2 id="setup-heading">Connection unavailable</h2>
+                    <p>Use the actual localhost address printed at startup, then configure a Microsoft Entra public-client registration for that address.</p>
+                    <p>Set LocalConnection__TenantId and LocalConnection__ClientId to the registration's GUIDs, enable the desktop system-browser flow with the http://localhost loopback callback, then restart the app.</p>
+                    <p>No client secret is needed. On Windows, the account cache is persistently protected. On other platforms, tokens stay in memory and require sign-in again after an app restart.</p>
+                    <a href="/connect" data-enhance-nav="false">Check configuration again</a>
+                </section>
+            }
+            else if (string.IsNullOrEmpty(state.Version))
+            {
+                <section class="panel connection-card" aria-labelledby="bootstrap-heading">
+                    <h2 id="bootstrap-heading">Start a local connection session</h2>
+                    <p>No current account is verified in this page. Starting a session does not grant calendar access.</p>
+                    <form method="post" action="/connection/bootstrap" data-enhance="false">
+                        <AntiforgeryToken />
+                        <button type="submit" class="primary">Start local session</button>
+                    </form>
+                </section>
+            }
+            else
+            {
+                <section class="panel connection-card" aria-labelledby="identity-heading">
+                    <h2 id="identity-heading">Microsoft 365 account</h2>
+                    @if (state.Phase == ConnectionPhase.SigningIn)
+                    {
+                        <p>Finish signing in in the system browser. This page checks progress every two seconds.</p>
+                        <p>The mailbox and default calendar will be independently verified before you continue.</p>
+                    }
+                    else if (state.Phase == ConnectionPhase.AwaitingCompletion)
+                    {
+                        <p>Identity and calendar ownership verified for <strong>@state.Mailbox?.Address</strong>.</p>
+                        <p>Complete sign-in to establish the verified browser session. Calendar discovery is still locked.</p>
+                        <form method="post" action="/connection/complete" data-enhance="false">
+                            <AntiforgeryToken />
+                            <input type="hidden" name="version" value="@state.Version" />
+                            <button type="submit" class="primary">Complete verified sign-in</button>
+                        </form>
+                    }
+                    else if (state.Mailbox is { } mailbox)
+                    {
+                        <p><strong>@mailbox.DisplayName</strong><br />@mailbox.Address</p>
+                        <p>Verified mailbox and default calendar. Access is read only.</p>
+                    }
+                    else
+                    {
+                        <p>Sign in with the account whose calendar you want to read.</p>
+                        @if (state.CachedAccount is { } cached)
+                        {
+                            <p>Cached account hint: <strong>@cached</strong>. This is not proof of identity.</p>
+                            <form method="post" action="/connection/start" data-enhance="false">
+                                <AntiforgeryToken />
+                                <input type="hidden" name="version" value="@state.Version" />
+                                <input type="hidden" name="mode" value="continue" />
+                                <button type="submit" class="primary">Continue with cached account</button>
+                            </form>
+                        }
+                    }
+                    <div class="connection-actions">
+                        @if (state.Phase is ConnectionPhase.SignedOut or ConnectionPhase.Failed)
+                        {
+                            <form method="post" action="/connection/start" data-enhance="false">
+                                <AntiforgeryToken />
+                                <input type="hidden" name="version" value="@state.Version" />
+                                <input type="hidden" name="mode" value="interactive" />
+                                <button type="submit" class="primary">Sign in using browser</button>
+                            </form>
+                        }
+                        @if (state.Phase is ConnectionPhase.SigningIn or ConnectionPhase.AwaitingCompletion or ConnectionPhase.Discovering)
+                        {
+                            <form method="post" action="/connection/cancel" data-enhance="false">
+                                <AntiforgeryToken />
+                                <input type="hidden" name="version" value="@state.Version" />
+                                <button type="submit" class="secondary">Cancel @(state.Phase == ConnectionPhase.Discovering ? "calendar read" : "sign-in")</button>
+                            </form>
+                        }
+                        <form method="post" action="/connection/signout" data-enhance="false">
+                            <AntiforgeryToken />
+                            <input type="hidden" name="version" value="@state.Version" />
+                            <button type="submit" class="secondary">Disconnect and clear app account cache</button>
+                        </form>
+                    </div>
+                    <p class="connection-hint">To switch accounts, disconnect first, start a new local session, then choose browser sign-in. Disconnect clears this app's cache, not your Microsoft browser session.</p>
+                </section>
+                @if (state.Mailbox is not null && state.Phase is ConnectionPhase.Connected or ConnectionPhase.Discovering or ConnectionPhase.Failed)
+                {
+                    <section class="panel connection-card" aria-labelledby="location-heading">
+                        <h2 id="location-heading">Confirm your location</h2>
+                        <p>Device zone suggestion: <strong>@state.SuggestedTimeZoneId</strong>. A device setting does not establish meeting intent. Choose and confirm your zone explicitly, including local exceptions.</p>
+                        @if (state.Location is { } location)
+                        {
+                            <p>Confirmed: <strong>@location.Community, @location.Province · @location.TimeZoneId</strong></p>
+                        }
+                        <form method="post" action="/connection/location" data-enhance="false">
+                            <AntiforgeryToken />
+                            <input type="hidden" name="version" value="@state.Version" />
+                            <div class="location-fields">
+                                <div>
+                                    <label for="connection-province">Province</label>
+                                    <select id="connection-province" name="province" required value="@_province" @onchange="ChangeProvince">
+                                        <option value="">Choose province</option>
+                                        @foreach (var province in LocalConnectionService.LocationZones.Keys)
+                                        {
+                                            <option value="@province">@ProvinceName(province)</option>
+                                        }
+                                    </select>
+                                </div>
+                                <div>
+                                    <label for="connection-community">City or community</label>
+                                    <input id="connection-community" name="community" required maxlength="100" @bind="_community" autocomplete="address-level2" />
+                                </div>
+                                <div>
+                                    <label for="connection-zone">Time zone (explicit choice)</label>
+                                    <select id="connection-zone" name="timeZoneId" required @bind="_timeZoneId" aria-describedby="zone-help">
+                                        <option value="">Choose time zone</option>
+                                        @foreach (var zone in AvailableZones)
+                                        {
+                                            <option value="@zone">@zone</option>
+                                        }
+                                    </select>
+                                </div>
+                            </div>
+                            <p id="zone-help" class="connection-hint">Select the zone for your community, not just the province's largest city. Changing location clears previous discovery and cancels any active read.</p>
+                            <button type="submit" class="secondary">Confirm location and time zone</button>
+                        </form>
+                    </section>
+                    <section class="panel connection-card" aria-labelledby="discovery-heading">
+                        <h2 id="discovery-heading">Read the next 90 days</h2>
+                        <p>Read the verified default calendar, then list discovered meetings you organize. This does not create a correction plan or enable calendar writes.</p>
+                        <form method="post" action="/connection/discover" data-enhance="false">
+                            <AntiforgeryToken />
+                            <input type="hidden" name="version" value="@state.Version" />
+                            <button type="submit" class="primary" disabled="@(state.Location is null || state.Phase == ConnectionPhase.Discovering)">Discover next 90 days</button>
+                        </form>
+                        @if (state.Location is null)
+                        {
+                            <p>Confirm your community and time zone above before discovery.</p>
+                        }
+                        @if (state.Phase == ConnectionPhase.Discovering)
+                        {
+                            <p>Reading calendar metadata. Progress is checked every two seconds. You can cancel above.</p>
+                        }
+                        @if (state.Discovery is { } discovery)
+                        {
+                            <h3>@(discovery.Complete ? "Discovery complete within the requested scope" : "Partial discovery · results are incomplete")</h3>
+                            <p>@FormatUtc(discovery.Start) through @FormatUtc(discovery.End).</p>
+                            <p>@discovery.ObservedEvents events observed · @discovery.OrganizerMeetings.Length organizer meetings returned.</p>
+                            <p class="connection-hint">Read limits: 500 observed events, 10 pages, 500 detail reads and two minutes. All timestamps below are UTC, not inferred meeting intent.</p>
+                            @if (!discovery.Holds.IsDefaultOrEmpty)
+                            {
+                                <h3>Holds and limitations</h3>
+                                <ul>
+                                    @foreach (var hold in discovery.Holds)
+                                    {
+                                        <li>@hold</li>
+                                    }
+                                </ul>
+                            }
+                            @if (discovery.OrganizerMeetings.IsEmpty)
+                            {
+                                <p>No organizer meetings were returned in this read.@(!discovery.Complete ? " This does not establish that your calendar has none." : "")</p>
+                            }
+                            else
+                            {
+                                <p id="meeting-scroll-help">All returned organizer meetings are listed below. Scroll within the table to review them.</p>
+                                <div class="meeting-scroll" role="region" aria-label="Discovered organizer meetings" aria-describedby="meeting-scroll-help" tabindex="0">
+                                    <table>
+                                        <caption>Live organizer meeting metadata · times in UTC</caption>
+                                        <thead><tr><th scope="col">Start (UTC)</th><th scope="col">End (UTC)</th><th scope="col">Organizer</th><th scope="col">Kind</th><th scope="col">Attendees</th></tr></thead>
+                                        <tbody>
+                                            @foreach (var meeting in discovery.OrganizerMeetings)
+                                            {
+                                                <tr><td>@FormatUtc(meeting.Start)</td><td>@FormatUtc(meeting.End)</td><td>@(meeting.Organizer ?? "Not supplied")</td><td>@meeting.Kind</td><td>@meeting.AttendeeCount</td></tr>
+                                            }
+                                        </tbody>
+                                    </table>
+                                </div>
+                            }
+                        }
+                    </section>
+                }
+            }
+        }
+        <footer class="connection-footer">
+            <p>Status continues to refresh every 15 seconds when idle. If this page loses its session, displayed account and meeting data are cleared.</p>
+            <p>Actions reload this page to refresh the authenticated session. If an action opens a JSON error or blank error page, return to <a href="/connect" data-enhance-nav="false">/connect</a> to load current status before retrying. Do not resubmit an old form.</p>
+        </footer>
+    </main>
+</div>
