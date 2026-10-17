@@ -70,10 +70,11 @@ try
     using var handler = new HttpClientHandler { AllowAutoRedirect = false, UseProxy = false };
     using var client = new HttpClient(handler) { BaseAddress = new Uri("http://localhost:5009"), Timeout = TimeSpan.FromSeconds(2) };
     var html = await WaitForShellAsync(process, client, timeout.Token);
-    if (!html.Contains("<title>Calendar Remediation", StringComparison.Ordinal)
-        || !html.Contains("data-workspace=\"calendar-remediation\"", StringComparison.Ordinal))
+    if (!html.Contains("<title>Live calendar preview · Calendar Remediation</title>", StringComparison.Ordinal)
+        || !html.Contains(">Live calendar preview</h1>", StringComparison.Ordinal)
+        || !html.Contains("LIVE · READ ONLY", StringComparison.Ordinal))
     {
-        throw new InvalidOperationException("The home page did not contain the expected application shell.");
+        throw new InvalidOperationException("The home page did not contain the expected live connection shell.");
     }
 
     // Resolve fingerprinted URLs from the rendered page rather than guessing asset names.
@@ -105,6 +106,12 @@ try
         {
             throw new InvalidOperationException($"Asset check failed: {path} ({response.StatusCode}, {mediaType}).");
         }
+    }
+
+    var demo = await client.GetStringAsync("/demo", timeout.Token);
+    if (!demo.Contains("data-workspace=\"calendar-remediation\"", StringComparison.Ordinal))
+    {
+        throw new InvalidOperationException("The synthetic demo route did not contain its workspace marker.");
     }
 
     var feasibility = await client.GetStringAsync("/feasibility", timeout.Token);
