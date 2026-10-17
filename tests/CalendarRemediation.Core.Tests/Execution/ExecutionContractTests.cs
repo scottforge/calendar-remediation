@@ -7,6 +7,74 @@ namespace CalendarRemediation.Core.Tests.Execution;
 
 public sealed class ExecutionContractTests
 {
+    [Theory]
+    [InlineData("plan")]
+    [InlineData("digest")]
+    [InlineData("plan-id")]
+    [InlineData("operator")]
+    [InlineData("selection")]
+    [InlineData("approval-lifetime")]
+    [InlineData("approval-before-plan")]
+    [InlineData("approval-after-start")]
+    public async Task InvalidBindingCannotRecoverPersistedSuccess(string changed)
+    {
+        var draft = ContractFixture.Draft;
+        if (changed == "approval-after-start")
+        {
+            var start = ContractFixture.Now.AddMinutes(1);
+            draft = draft with
+            {
+                Items = [ContractFixture.Item with { Source = ContractFixture.Source with { Start = start, End = start.AddHours(1) } }]
+            };
+        }
+        var rig = new ExecutionRig(draft);
+        rig.Journal.Entries.Add(new(Guid.NewGuid(), rig.Request.Plan.Digest, "item-1", JournalState.Verified,
+            "\"v1\"", ContractFixture.Patch, null));
+        var approval = rig.Request.Approval;
+        if (changed == "plan")
+        {
+            rig.Request = rig.Request with { Plan = rig.Request.Plan with { CanonicalJson = "tampered" } };
+        }
+        else
+        {
+            approval = changed switch
+            {
+                "digest" => approval with { Digest = "tampered" },
+                "plan-id" => approval with { PlanId = "other" },
+                "operator" => approval with { Operator = "" },
+                "selection" => approval with { SelectedItemIds = ["item-1", "item-1"] },
+                "approval-lifetime" => approval with { ExpiresAt = rig.Request.Plan.Content.ExpiresAt.AddTicks(1) },
+                "approval-before-plan" => approval with { ApprovedAt = rig.Request.Plan.Content.CreatedAt.AddTicks(-1) },
+                _ => approval with { ApprovedAt = rig.Request.Plan.Content.Items[0].Source.Start!.Value }
+            };
+            rig.Request = rig.Request with { Approval = approval };
+        }
+        rig.Clock.Advance(TimeSpan.FromDays(10));
+
+        var result = Assert.Single(await rig.ExecuteAsync());
+
+        Assert.Equal(ExecutionOutcome.Blocked, result.Outcome);
+        Assert.Equal("approval-invalid", result.Reason);
+        Assert.False(result.OrganizerVerified);
+        Assert.Empty(rig.Journal.Prepared);
+        Assert.Empty(rig.Writer.Writes);
+        Assert.Equal(0, rig.Reader.Reads);
+    }
+
+    [Fact]
+    public async Task RequestConstructedBeforeExpiryCannotAuthorizeLaterExecution()
+    {
+        var rig = new ExecutionRig();
+        rig.Clock.Advance(rig.Request.Approval.ExpiresAt - ContractFixture.Now);
+
+        var result = Assert.Single(await rig.ExecuteAsync());
+
+        Assert.Equal(ExecutionOutcome.Blocked, result.Outcome);
+        Assert.Empty(rig.Writer.Writes);
+        Assert.Equal(0, rig.Reader.Reads);
+        Assert.Empty(rig.Journal.Entries);
+    }
+
     [Fact]
     public async Task JournalIntentIsDurableBeforeExactGuardedDispatchAndVerifiedReadback()
     {
@@ -64,7 +132,7 @@ public sealed class ExecutionContractTests
                 rig.Request = rig.Request with { Admission = ContractFixture.Admission with { Admitted = false } };
                 break;
             case "expiry":
-                rig.Request = rig.Request with { Now = rig.Request.Approval.ExpiresAt };
+                rig.Clock.Advance(rig.Request.Approval.ExpiresAt - ContractFixture.Now);
                 break;
         }
         var result = Assert.Single(await rig.ExecuteAsync());
@@ -196,6 +264,7 @@ internal sealed class ExecutionRig
     internal RecordingWriter Writer { get; }
     internal MemoryJournal Journal { get; }
     internal ExecutionControl Control { get; } = new();
+    internal ManualExecutionClock Clock { get; } = new();
     internal ExecutionRequest Request { get; set; }
 
     internal ExecutionRig(PlanDraft? draft = null)
@@ -204,11 +273,18 @@ internal sealed class ExecutionRig
         Writer = new(Trace);
         Journal = new(Trace);
         var plan = PlanBuilder.Build(draft ?? ContractFixture.Draft);
-        Request = new(plan, ContractFixture.Approval(plan), ContractFixture.Dependencies, ContractFixture.Admission, ContractFixture.Now);
+        Request = new(plan, ContractFixture.Approval(plan), ContractFixture.Dependencies, ContractFixture.Admission);
     }
 
     internal Task<ImmutableArray<ExecutionResult>> ExecuteAsync()
-        => new PlanExecutor(Reader, Writer, Journal, Control).ExecuteAsync(Request);
+        => new PlanExecutor(Reader, Writer, Journal, Control, Clock).ExecuteAsync(Request);
+}
+
+internal sealed class ManualExecutionClock : TimeProvider
+{
+    private long _ticks;
+    public override DateTimeOffset GetUtcNow() => ContractFixture.Now.AddTicks(Interlocked.Read(ref _ticks));
+    internal void Advance(TimeSpan elapsed) => Interlocked.Add(ref _ticks, elapsed.Ticks);
 }
 
 internal sealed class ScriptedReader(List<string> trace) : ICalendarReader

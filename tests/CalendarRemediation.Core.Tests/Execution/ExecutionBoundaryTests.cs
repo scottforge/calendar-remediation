@@ -9,6 +9,113 @@ namespace CalendarRemediation.Core.Tests.Execution;
 public sealed class ExecutionBoundaryTests
 {
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task QueuedRequestUsesUtcClockAfterWaitingForJournal(bool pastStart)
+    {
+        var firstItem = ContractFixture.Item;
+        if (pastStart)
+        {
+            var start = ContractFixture.Now.AddMinutes(1);
+            firstItem = firstItem with { Source = firstItem.Source with { Start = start, End = start.AddHours(1) } };
+        }
+        var batch = new BoundaryBatch(firstItem);
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        batch.Journal.BeforeReadAsync = async () =>
+        {
+            entered.TrySetResult();
+            await release.Task;
+        };
+        var first = batch.ExecuteAsync();
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        var queued = batch.ExecuteAsync();
+        try
+        {
+            Assert.False(queued.IsCompleted);
+            var boundary = pastStart ? firstItem.Source.Start!.Value : batch.Request.Approval.ExpiresAt;
+            batch.Clock.Advance(boundary - ContractFixture.Now);
+        }
+        finally
+        {
+            release.TrySetResult();
+        }
+
+        var results = await queued.WaitAsync(TimeSpan.FromSeconds(10));
+        await first.WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.All(results, result => Assert.Equal(ExecutionOutcome.Blocked, result.Outcome));
+        Assert.Empty(batch.Provider.Writes);
+        Assert.Empty(batch.Provider.Reads);
+        Assert.Empty(batch.Journal.Entries);
+    }
+
+    [Theory]
+    [InlineData(JournalState.Verified, "expiry")]
+    [InlineData(JournalState.Unknown, "expiry")]
+    [InlineData(JournalState.Dispatched, "expiry")]
+    [InlineData(JournalState.Verified, "dependencies")]
+    [InlineData(JournalState.Unknown, "dependencies")]
+    [InlineData(JournalState.Dispatched, "dependencies")]
+    [InlineData(JournalState.Verified, "source-start")]
+    [InlineData(JournalState.Unknown, "source-start")]
+    [InlineData(JournalState.Dispatched, "source-start")]
+    [InlineData(JournalState.Verified, "patch-start")]
+    [InlineData(JournalState.Unknown, "patch-start")]
+    [InlineData(JournalState.Dispatched, "patch-start")]
+    [InlineData(JournalState.Verified, "plan-expiry")]
+    [InlineData(JournalState.Unknown, "plan-expiry")]
+    [InlineData(JournalState.Dispatched, "plan-expiry")]
+    public async Task RecoveryRetainsEvidenceWhileInvalidAuthorizationBlocksFreshItem(JournalState state, string changed)
+    {
+        var first = ContractFixture.Item;
+        if (changed == "source-start")
+        {
+            var start = ContractFixture.Now.AddMinutes(1);
+            first = first with { Source = first.Source with { Start = start, End = start.AddHours(1) } };
+        }
+        if (changed == "patch-start")
+        {
+            var start = ContractFixture.Now.AddMinutes(1);
+            first = first with { Patch = first.Patch! with { Start = start, End = start.AddHours(1) } };
+        }
+        var batch = new BoundaryBatch(first);
+        var persisted = new JournalEntry(Guid.NewGuid(), batch.Request.Plan.Digest, first.Id,
+            state, first.Source.Guard!, first.Patch!, null);
+        batch.Journal.Entries.Add(persisted);
+        if (changed == "dependencies")
+        {
+            batch.Request = batch.Request with
+            {
+                CurrentDependencies = ContractFixture.Dependencies with { PolicyHash = "changed" }
+            };
+        }
+        else
+        {
+            var boundary = changed switch
+            {
+                "source-start" => first.Source.Start!.Value,
+                "patch-start" => first.Patch!.Start,
+                "plan-expiry" => batch.Request.Plan.Content.ExpiresAt,
+                _ => batch.Request.Approval.ExpiresAt
+            };
+            batch.Clock.Advance(boundary - ContractFixture.Now);
+        }
+
+        var results = await batch.ExecuteAsync();
+
+        var recovered = Assert.Single(results, result => result.ItemId == first.Id);
+        Assert.Equal(state == JournalState.Verified ? ExecutionOutcome.Verified : ExecutionOutcome.Unknown, recovered.Outcome);
+        Assert.Equal(state == JournalState.Verified, recovered.OrganizerVerified);
+        Assert.False(recovered.DeliveryVerified);
+        Assert.Equal(state == JournalState.Verified ? ExecutionOutcome.Blocked : ExecutionOutcome.Paused,
+            Assert.Single(results, result => result.ItemId == "item-2").Outcome);
+        Assert.Empty(batch.Provider.Reads);
+        Assert.Empty(batch.Provider.Writes);
+        Assert.Equal(persisted, Assert.Single(batch.Journal.Entries));
+    }
+
+    [Theory]
     [InlineData(true, JournalState.Intent)]
     [InlineData(true, JournalState.Dispatched)]
     [InlineData(false, JournalState.Intent)]
@@ -176,7 +283,7 @@ public sealed class ExecutionBoundaryTests
         internal BoundaryProvider Provider { get; }
         internal BoundaryJournal Journal { get; } = new();
         internal ExecutionControl Control { get; } = new();
-        internal ExecutionRequest Request { get; }
+        internal ExecutionRequest Request { get; set; }
 
         internal BoundaryBatch(PlanItem? first = null)
         {
@@ -185,7 +292,7 @@ public sealed class ExecutionBoundaryTests
             var approval = PlanApproval.Approve(plan, "operator", ["item-1", "item-2"],
                 ContractFixture.Now, ContractFixture.Now.AddMinutes(30));
             Assert.True(PlanApproval.Validate(plan, approval, ContractFixture.Now, ContractFixture.Dependencies).Valid);
-            Request = new(plan, approval, ContractFixture.Dependencies, ContractFixture.Admission, ContractFixture.Now);
+            Request = new(plan, approval, ContractFixture.Dependencies, ContractFixture.Admission);
             Provider = new(items);
         }
 
@@ -193,19 +300,12 @@ public sealed class ExecutionBoundaryTests
             => new PlanExecutor(Provider, Provider, Journal, Control, Clock).ExecuteAsync(Request, cancellationToken);
     }
 
-    private sealed class ManualExecutionClock : TimeProvider
-    {
-        private long _timestamp;
-        public override long TimestampFrequency => TimeSpan.TicksPerSecond;
-        public override long GetTimestamp() => _timestamp;
-        internal void Advance(TimeSpan elapsed) => _timestamp += elapsed.Ticks;
-    }
-
     private sealed class BoundaryJournal : IExecutionJournal
     {
         internal List<JournalEntry> Entries { get; } = [];
         internal Func<JournalEntry, Task>? AfterAppendAsync { get; set; }
         internal JournalState? FailState { get; set; }
+        internal Func<Task>? BeforeReadAsync { get; set; }
 
         public Task PrepareAsync(RemediationPlan plan, Approval approval, CancellationToken cancellationToken = default)
             => Task.CompletedTask;
@@ -223,8 +323,11 @@ public sealed class ExecutionBoundaryTests
             }
         }
 
-        public Task<ImmutableArray<JournalEntry>> ReadAsync(string planDigest, CancellationToken cancellationToken = default)
-            => Task.FromResult(Entries.Where(e => e.PlanDigest == planDigest).ToImmutableArray());
+        public async Task<ImmutableArray<JournalEntry>> ReadAsync(string planDigest, CancellationToken cancellationToken = default)
+        {
+            if (BeforeReadAsync is { } callback) { await callback(); }
+            return Entries.Where(e => e.PlanDigest == planDigest).ToImmutableArray();
+        }
     }
 
     private sealed class BoundaryProvider(ImmutableArray<PlanItem> items) : ICalendarReader, ICalendarWriter

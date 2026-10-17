@@ -101,11 +101,11 @@ internal sealed class ReviewerBatch
             ContractFixture.Now, ContractFixture.Now.AddMinutes(30));
         Assert.True(PlanApproval.Validate(plan, approval, ContractFixture.Now, ContractFixture.Dependencies).Valid);
         Provider = new(items);
-        _request = new(plan, approval, ContractFixture.Dependencies, ContractFixture.Admission, ContractFixture.Now);
+        _request = new(plan, approval, ContractFixture.Dependencies, ContractFixture.Admission);
     }
 
     internal Task<ImmutableArray<ExecutionResult>> ExecuteAsync()
-        => new PlanExecutor(Provider, Provider, Journal, new ExecutionControl()).ExecuteAsync(_request);
+        => new PlanExecutor(Provider, Provider, Journal, new ExecutionControl(), new ManualExecutionClock()).ExecuteAsync(_request);
 }
 
 // The provider returns each approved item's exact source before dispatch and its exact
