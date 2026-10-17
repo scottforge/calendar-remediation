@@ -3,6 +3,7 @@ using CalendarRemediation.Host.Authentication;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.Components.Rendering;
+using Microsoft.JSInterop;
 
 namespace CalendarRemediation.Host.Review;
 
@@ -11,6 +12,7 @@ public partial class Connect : IAsyncDisposable
     [Inject] private LocalConnectionService Connection { get; set; } = null!;
     [Inject] private AuthenticationStateProvider AuthenticationStateProvider { get; set; } = null!;
     [Inject] private ILogger<Connect> Logger { get; set; } = null!;
+    [Inject] private IJSRuntime JavaScript { get; set; } = null!;
 
     private readonly CancellationTokenSource _lifetime = new();
     private Task? _polling;
@@ -21,6 +23,11 @@ public partial class Connect : IAsyncDisposable
     private string _timeZoneId = "";
     private string _previewMode = "";
     private bool _disposed;
+    private ElementReference _completionForm;
+    private IJSObjectReference? _module;
+    private Task? _completionTask;
+    private readonly HashSet<string> _completionAttemptVersions = new(StringComparer.Ordinal);
+    private bool _completionFailed;
 
     private IEnumerable<string> AvailableZones => LocalConnectionService.LocationZones.TryGetValue(_province, out var zones)
         ? zones : [];
@@ -28,10 +35,10 @@ public partial class Connect : IAsyncDisposable
     private string StatusText => _refreshError is not null ? "Connection status could not be verified. Live data has been cleared."
         : _state?.Phase switch
         {
-            ConnectionPhase.Disabled => "Connection is unavailable on this installation.",
-            ConnectionPhase.SignedOut => "Not connected. Start or resume sign-in below.",
+            ConnectionPhase.Disabled => "Sign-in is unavailable with the current configuration. See Developer configuration for setup details and the reported problem.",
+            ConnectionPhase.SignedOut => "Not connected. Sign in below to get started.",
             ConnectionPhase.SigningIn => "Sign-in is in progress in the system browser.",
-            ConnectionPhase.AwaitingCompletion => "Verification succeeded. Complete sign-in below.",
+            ConnectionPhase.AwaitingCompletion => "Finishing sign-in…",
             ConnectionPhase.Connected => "Connected to a verified mailbox with read-only access.",
             ConnectionPhase.Discovering => "Connected. Calendar discovery is running.",
             ConnectionPhase.Failed => "The operation failed. Review the error and retry below.",
@@ -40,11 +47,37 @@ public partial class Connect : IAsyncDisposable
 
     protected override Task OnInitializedAsync() => RefreshAsync(_lifetime.Token);
 
-    protected override Task OnAfterRenderAsync(bool firstRender)
+    protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         // Start only on the interactive instance, never during server prerendering.
         if (firstRender && !_disposed) { _polling = PollAsync(_lifetime.Token); }
-        return Task.CompletedTask;
+        if (!_disposed && _completionTask is not { IsCompleted: false }
+            && _state is { Phase: ConnectionPhase.AwaitingCompletion, Version: { Length: > 0 } version }
+            && _completionAttemptVersions.Add(version))
+        {
+            _completionFailed = false;
+            _completionTask = CompleteSignInAsync(version);
+            await _completionTask;
+        }
+    }
+
+    private async Task CompleteSignInAsync(string version)
+    {
+        try
+        {
+            _module ??= await JavaScript.InvokeAsync<IJSObjectReference>("import", _lifetime.Token, "./Review/Connect.razor.js");
+            if (_disposed || _state?.Phase != ConnectionPhase.AwaitingCompletion || _state.Version != version) { return; }
+            await _module.InvokeVoidAsync("submitCompletion", _lifetime.Token, _completionForm);
+        }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
+        catch (Exception ex) when (ex is JSException or OperationCanceledException)
+        {
+            if (!_disposed && _state?.Phase == ConnectionPhase.AwaitingCompletion && _state.Version == version)
+            {
+                _completionFailed = true;
+                StateHasChanged();
+            }
+        }
     }
 
     private async Task PollAsync(CancellationToken cancellationToken)
@@ -128,8 +161,23 @@ public partial class Connect : IAsyncDisposable
         _disposed = true;
         await _lifetime.CancelAsync();
         if (_polling is not null) { await _polling; }
+        if (_completionTask is not null) { await _completionTask; }
+        if (_module is not null)
+        {
+            try { await _module.DisposeAsync(); }
+            catch (JSDisconnectedException) { }
+            catch (OperationCanceledException) { }
+        }
         _lifetime.Dispose();
         GC.SuppressFinalize(this);
+    }
+
+    private static string PreviewChange(DateTimeOffset? current, DateTimeOffset? proposed)
+    {
+        if (current is not { } start || proposed is not { } end) { return "Change unavailable"; }
+        var minutes = (end - start).TotalMinutes;
+        return minutes == 0 ? "0 minutes (same time)"
+            : minutes.ToString("+0.##;-0.##", CultureInfo.InvariantCulture) + " minutes (" + (minutes > 0 ? "later)" : "earlier)");
     }
 
     // Keep this route independent of the demo layout and its fictional account status.

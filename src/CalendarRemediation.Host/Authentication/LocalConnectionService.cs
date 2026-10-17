@@ -81,14 +81,37 @@ public sealed class LocalConnectionService(ILocalIdentityClient identity, ILocal
         lock (_sync)
         {
             Require(principal, version);
-            if (_clearing) { throw new ConnectionException(new("busy", "Account sign-out is still finishing. Try again shortly.")); }
-            if (identity.Unavailable is { } unavailable) { throw new ConnectionException(unavailable); }
-            Invalidate();
-            var session = new Session { Phase = ConnectionPhase.SigningIn };
-            _session = session;
-            Track(session, ct => SignInAsync(session, interactive, ct));
-            return Ticket(session);
+            return BeginSignIn(interactive);
         }
+    }
+
+    public ConnectionTicket StartBrowserSignIn(ClaimsPrincipal principal, string version)
+    {
+        lock (_sync)
+        {
+            ThrowIfDisposed();
+            if (Find(principal) is { } existing)
+            {
+                Require(principal, version);
+                if (existing.Phase is not (ConnectionPhase.SignedOut or ConnectionPhase.Failed)) { throw Stale(); }
+            }
+            else if (!string.IsNullOrEmpty(version) || principal.FindFirstValue(SessionClaim) is not null)
+            {
+                throw Stale();
+            }
+            return BeginSignIn(interactive: true);
+        }
+    }
+
+    private ConnectionTicket BeginSignIn(bool interactive)
+    {
+        if (_clearing) { throw new ConnectionException(new("busy", "Account sign-out is still finishing. Try again shortly.")); }
+        if (identity.Unavailable is { } unavailable) { throw new ConnectionException(unavailable); }
+        Invalidate();
+        var session = new Session { Phase = ConnectionPhase.SigningIn };
+        _session = session;
+        Track(session, ct => SignInAsync(session, interactive, ct));
+        return Ticket(session);
     }
 
     public ConnectionTicket Complete(ClaimsPrincipal principal, string version)

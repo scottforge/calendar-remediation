@@ -62,7 +62,8 @@ public static class ConnectionEndpoints
             context.Response.Headers.CacheControl = "no-store";
             context.Response.Headers.Pragma = "no-cache";
             context.Response.Headers["X-Content-Type-Options"] = "nosniff";
-            context.Response.Headers["Referrer-Policy"] = "no-referrer";
+            // Native same-origin form posts need a non-null Origin for the local request guard.
+            context.Response.Headers["Referrer-Policy"] = "same-origin";
         }
         await next(context);
     });
@@ -82,6 +83,10 @@ public static class ConnectionEndpoints
         MapAction(app, "bootstrap", async (context, connection, _) =>
         {
             await IssueCookieAsync(context, connection.Bootstrap(context.User));
+        });
+        MapAction(app, "signin", async (context, connection, form) =>
+        {
+            await IssueCookieAsync(context, connection.StartBrowserSignIn(context.User, form["version"].ToString()));
         });
         MapAction(app, "start", async (context, connection, form) =>
         {

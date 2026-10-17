@@ -1,4 +1,4 @@
-.connection-shell { max-width: 1180px; margin: 0 auto; padding: 24px 32px 48px; color: var(--color-ink, #26364d); }
+.connection-shell { box-sizing: border-box; width: 100%; max-width: 1180px; margin: 0 auto; padding: 24px 32px 48px; color: var(--color-ink, #26364d); }
 .connection-header { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding-bottom: 28px; }
 .page-heading { margin: 24px 0; }
 .eyebrow { font-size: 12px; font-weight: 700; letter-spacing: 1.6px; color: #5879a5; }
@@ -19,7 +19,7 @@ a { color: #235bc3; }
 .location-fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; margin: 20px 0; }
 .location-fields label, .preview-fields label { display: block; font-weight: 600; margin-bottom: 8px; overflow-wrap: anywhere; }
 .location-fields input, .location-fields select, .preview-fields input, .preview-fields select { box-sizing: border-box; width: 100%; min-width: 0; min-height: 44px; border: 1px solid #9bacc2; border-radius: 8px; padding: 10px; font: inherit; color: inherit; background: #fff; }
-button { min-height: 44px; white-space: normal; padding: 11px 17px; border-radius: 7px; border: 1px solid transparent; font-weight: 600; }
+button { max-width: 100%; min-height: 44px; white-space: normal; padding: 11px 17px; border-radius: 7px; border: 1px solid transparent; font: inherit; font-weight: 600; cursor: pointer; }
 .primary { background: var(--color-primary, #326bd9); color: #fff; }
 .primary:hover:not(:disabled) { background: #2159c6; }
 .secondary { background: #fff; border-color: #b3c3d8; color: #344f73; }
@@ -32,7 +32,10 @@ th { position: sticky; top: 0; background: #eef4ff; z-index: 1; }
 th, td { padding: 14px; border-bottom: 1px solid #e0e8f2; vertical-align: top; }
 td { overflow-wrap: anywhere; min-width: 120px; }
 td:last-child { min-width: 60px; }
-:is(a, button, input, select, .meeting-scroll):focus-visible { outline: 3px solid #326bd9; outline-offset: 3px; }
+:is(a, button, input, select, summary, .meeting-scroll):focus-visible { outline: 3px solid #326bd9; outline-offset: 3px; }
+summary { min-height: 44px; align-content: center; cursor: pointer; font-weight: 600; overflow-wrap: anywhere; }
+.connection-setup { margin-top: 20px; }
+.connection-setup code { overflow-wrap: anywhere; }
 .connection-footer { margin-top: 28px; }
 .meeting-preview { margin-top: 28px; padding-top: 12px; border-top: 1px solid #e0e8f2; min-width: 0; }
 .preview-fields { display: grid; gap: 18px; min-width: 0; margin: 20px 0; padding: 0; border: 0; }
@@ -44,10 +47,16 @@ td:last-child { min-width: 60px; }
 .preview-times dt { font-weight: 600; }
 .preview-times dd { margin: 4px 0 0; overflow-wrap: anywhere; }
 .preview-times dd span { color: #526781; }
-@media (max-width: 760px) {
+@media (max-width: 800px) {
     .connection-shell { padding: 18px 16px 32px; }
     .connection-card { padding: 20px; }
     .location-fields { grid-template-columns: 1fr; }
     .connection-header { flex-wrap: wrap; }
     .preview-times { grid-template-columns: 1fr; }
+}
+@media (max-width: 440px) {
+    .connection-card { padding: 16px; }
+    .connection-actions { flex-direction: column; }
+    .connection-actions form, .connection-actions button { width: 100%; }
+    .status-badge { white-space: nowrap; }
 }

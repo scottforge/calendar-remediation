@@ -35,48 +35,57 @@
         }
         @if (_state is { } state)
         {
-            @if (state.Problem is { } problem)
+            @if (state.Phase != ConnectionPhase.Disabled && state.Problem is { } problem)
             {
                 <div class="connection-error" role="alert"><strong>@problem.Code</strong>: @problem.Message</div>
             }
             @if (state.Phase == ConnectionPhase.Disabled)
             {
                 <section class="panel connection-card" aria-labelledby="setup-heading">
-                    <h2 id="setup-heading">Connection unavailable</h2>
-                    <p>Use the actual localhost address printed at startup, then configure a Microsoft Entra public-client registration for that address.</p>
-                    <p>Set LocalConnection__TenantId and LocalConnection__ClientId to the registration's GUIDs, enable the desktop system-browser flow with the http://localhost loopback callback, then restart the app.</p>
-                    <p>No client secret is needed. On Windows, the account cache is persistently protected. On other platforms, tokens stay in memory and require sign-in again after an app restart.</p>
-                    <a href="/connect" data-enhance-nav="false">Check configuration again</a>
+                    <h2 id="setup-heading">1. Account</h2>
+                    <p>Sign-in is unavailable with the current configuration. See Developer configuration for setup details and the reported problem.</p>
+                    <button type="button" class="primary" disabled>Sign in with browser</button>
+                    <details class="connection-setup">
+                        <summary>Developer configuration</summary>
+                        <p>Configure a Microsoft Entra public-client registration with the <code>http://localhost</code> loopback callback and enable system-browser sign-in. Set <code>LocalConnection__TenantId</code> and <code>LocalConnection__ClientId</code> to the registration's GUIDs, then restart the app. No client secret is needed.</p>
+                        <p>Open the localhost address printed at startup. Windows protects the persistent account cache. Other platforms keep tokens in memory, so restarting requires sign-in again.</p>
+                        @if (state.Problem is { } setupProblem)
+                        {
+                            <p>@setupProblem.Code: @setupProblem.Message</p>
+                        }
+                        <a href="/connect" data-enhance-nav="false">Check configuration again</a>
+                    </details>
                 </section>
             }
             else if (string.IsNullOrEmpty(state.Version))
             {
                 <section class="panel connection-card" aria-labelledby="bootstrap-heading">
-                    <h2 id="bootstrap-heading">Start a local connection session</h2>
-                    <p>No current account is verified in this page. Starting a session does not grant calendar access.</p>
-                    <form method="post" action="/connection/bootstrap" data-enhance="false">
+                    <h2 id="bootstrap-heading">1. Account</h2>
+                    <p>Sign in with the Microsoft 365 account whose calendar you want to preview.</p>
+                    <form method="post" action="/connection/signin" data-enhance="false">
                         <AntiforgeryToken />
-                        <button type="submit" class="primary">Start local session</button>
+                        <input type="hidden" name="version" value="@state.Version" />
+                        <button type="submit" class="primary">Sign in with browser</button>
                     </form>
                 </section>
             }
             else
             {
                 <section class="panel connection-card" aria-labelledby="identity-heading">
-                    <h2 id="identity-heading">Microsoft 365 account</h2>
+                    <h2 id="identity-heading">1. Account</h2>
                     @if (state.Phase == ConnectionPhase.SigningIn)
                     {
-                        <p>Finish signing in in the system browser. This page checks progress every two seconds.</p>
-                        <p>The mailbox and default calendar will be independently verified before you continue.</p>
+                        <p>Finish signing in in the browser window that opened. This page will continue automatically.</p>
+                        <p>Checking your account and calendar may take a moment.</p>
                     }
                     else if (state.Phase == ConnectionPhase.AwaitingCompletion)
                     {
-                        <p>Identity and calendar ownership verified for <strong>@state.Mailbox?.Address</strong>.</p>
-                        <p>Complete sign-in to establish the verified browser session. Calendar discovery is still locked.</p>
-                        <form method="post" action="/connection/complete" data-enhance="false">
+                        <p>Finishing sign-in for <strong>@state.Mailbox?.Address</strong>…</p>
+                        <p>@(_completionFailed ? "Automatic sign-in could not continue. Use the button below to retry." : "This page will continue automatically. If it does not, use Continue sign-in below.")</p>
+                        <form @ref="_completionForm" method="post" action="/connection/complete" data-enhance="false">
                             <AntiforgeryToken />
                             <input type="hidden" name="version" value="@state.Version" />
-                            <button type="submit" class="primary">Complete verified sign-in</button>
+                            <button type="submit" class="secondary">@(_completionFailed ? "Retry sign-in" : "Continue sign-in")</button>
                         </form>
                     }
                     else if (state.Mailbox is { } mailbox)
@@ -89,23 +98,25 @@
                         <p>Sign in with the account whose calendar you want to read.</p>
                         @if (state.CachedAccount is { } cached)
                         {
-                            <p>Cached account hint: <strong>@cached</strong>. This is not proof of identity.</p>
-                            <form method="post" action="/connection/start" data-enhance="false">
-                                <AntiforgeryToken />
-                                <input type="hidden" name="version" value="@state.Version" />
-                                <input type="hidden" name="mode" value="continue" />
-                                <button type="submit" class="primary">Continue with cached account</button>
-                            </form>
+                            <details>
+                                <summary>Use a previously signed-in account</summary>
+                                <p>Previously used account: <strong>@cached</strong>. Continue to verify it again.</p>
+                                <form method="post" action="/connection/start" data-enhance="false">
+                                    <AntiforgeryToken />
+                                    <input type="hidden" name="version" value="@state.Version" />
+                                    <input type="hidden" name="mode" value="continue" />
+                                    <button type="submit" class="secondary">Continue with this account</button>
+                                </form>
+                            </details>
                         }
                     }
                     <div class="connection-actions">
                         @if (state.Phase is ConnectionPhase.SignedOut or ConnectionPhase.Failed)
                         {
-                            <form method="post" action="/connection/start" data-enhance="false">
+                            <form method="post" action="/connection/signin" data-enhance="false">
                                 <AntiforgeryToken />
                                 <input type="hidden" name="version" value="@state.Version" />
-                                <input type="hidden" name="mode" value="interactive" />
-                                <button type="submit" class="primary">Sign in using browser</button>
+                                <button type="submit" class="primary">Sign in with browser</button>
                             </form>
                         }
                         @if (state.Phase is ConnectionPhase.SigningIn or ConnectionPhase.AwaitingCompletion or ConnectionPhase.Discovering)
@@ -116,19 +127,22 @@
                                 <button type="submit" class="secondary">Cancel @(state.Phase == ConnectionPhase.Discovering ? "calendar read" : "sign-in")</button>
                             </form>
                         }
-                        <form method="post" action="/connection/signout" data-enhance="false">
-                            <AntiforgeryToken />
-                            <input type="hidden" name="version" value="@state.Version" />
-                            <button type="submit" class="secondary">Disconnect and clear app account cache</button>
-                        </form>
+                        @if (state.Phase is ConnectionPhase.SignedOut or ConnectionPhase.Failed or ConnectionPhase.SigningIn or ConnectionPhase.AwaitingCompletion || state.Mailbox is not null)
+                        {
+                            <form method="post" action="/connection/signout" data-enhance="false">
+                                <AntiforgeryToken />
+                                <input type="hidden" name="version" value="@state.Version" />
+                                <button type="submit" class="secondary">Disconnect and clear app account cache</button>
+                            </form>
+                        }
                     </div>
-                    <p class="connection-hint">To switch accounts, disconnect first, start a new local session, then choose browser sign-in. Disconnect clears this app's cache, not your Microsoft browser session.</p>
+                    <p class="connection-hint">To switch accounts, disconnect, then sign in again. Disconnect clears this app's account cache, not your Microsoft browser session.</p>
                 </section>
                 @if (state.Mailbox is not null && state.Phase is ConnectionPhase.Connected or ConnectionPhase.Discovering or ConnectionPhase.Failed)
                 {
                     <section class="panel connection-card" aria-labelledby="location-heading">
-                        <h2 id="location-heading">Confirm your location</h2>
-                        <p>Device zone suggestion: <strong>@state.SuggestedTimeZoneId</strong>. A device setting does not establish meeting intent. Choose and confirm your zone explicitly, including local exceptions.</p>
+                        <h2 id="location-heading">2. Location</h2>
+                        <p>Confirm the community and time zone to use for previews. Device suggestion: <strong>@state.SuggestedTimeZoneId</strong>. This does not choose a meeting time for you.</p>
                         @if (state.Location is { } location)
                         {
                             <p>Confirmed: <strong>@location.Community, @location.Province · @location.TimeZoneId</strong></p>
@@ -167,8 +181,8 @@
                         </form>
                     </section>
                     <section class="panel connection-card" aria-labelledby="discovery-heading">
-                        <h2 id="discovery-heading">Read the next 90 days</h2>
-                        <p>Read the verified default calendar, then list discovered meetings you organize. You can calculate a hypothetical time preview below.</p>
+                        <h2 id="discovery-heading">3. Discover meetings</h2>
+                        <p>Read the next 90 days from your default calendar and list meetings you organize.</p>
                         <form method="post" action="/connection/discover" data-enhance="false">
                             <AntiforgeryToken />
                             <input type="hidden" name="version" value="@state.Version" />
@@ -180,7 +194,7 @@
                         }
                         @if (state.Phase == ConnectionPhase.Discovering)
                         {
-                            <p>Reading calendar metadata. Progress is checked every two seconds. You can cancel above.</p>
+                            <p>Reading your calendar… You can cancel above.</p>
                         }
                         @if (state.Discovery is { } discovery)
                         {
@@ -221,18 +235,18 @@
                             @if (state.Location is { } previewLocation && !discovery.OrganizerMeetings.IsEmpty)
                             {
                                 <section class="meeting-preview" aria-labelledby="preview-heading">
-                                    <h3 id="preview-heading">Explore an intended meeting time</h3>
-                                    <p>This is a hypothetical, read-only proposal using machine-installed time-zone rules. It does not confirm special policy adoption or provider rule adoption. Your calendar stays unmodified.</p>
-                                    <p id="preview-snapshot-help" class="connection-hint">Source times come from the last discovery, not a fresh calendar read. Refresh discovery to review newer calendar data. Recurring, all-day, or otherwise unsupported meetings may return an unsupported result.</p>
+                                    <h3 id="preview-heading">4. Preview a meeting time</h3>
+                                    <p>Choose a meeting and the time you intend. This read-only calculation uses this computer's time-zone rules and does not verify special policy or Microsoft 365 rule adoption.</p>
+                                    <p id="preview-snapshot-help" class="connection-hint">Source times are from your last discovery. Discover again for newer data. Recurring, all-day, or other unsupported meetings may not produce a preview.</p>
                                     <p>Confirmed location: <strong>@previewLocation.Community, @previewLocation.Province</strong><br />Preview time zone: <strong>@previewLocation.TimeZoneId</strong></p>
                                     <form method="post" action="/connection/preview" data-enhance="false">
                                         <AntiforgeryToken />
                                         <input type="hidden" name="version" value="@state.Version" />
                                         <input type="hidden" name="timeZoneId" value="@previewLocation.TimeZoneId" />
                                         <fieldset class="preview-fields" disabled="@(state.Phase != ConnectionPhase.Connected || !discovery.Complete)">
-                                            <legend>State your intent for one discovered meeting</legend>
+                                            <legend>Choose the meeting and your intended time</legend>
                                             <div>
-                                                <label for="preview-event">Organizer meeting (current local start, UTC and identity)</label>
+                                                <label for="preview-event">Meeting (source local start, UTC and ID)</label>
                                                 <select id="preview-event" name="eventId" required aria-describedby="preview-snapshot-help">
                                                     <option value="">Choose a meeting</option>
                                                     @foreach (var meeting in discovery.OrganizerMeetings)
@@ -246,14 +260,14 @@
                                                 <select id="preview-mode" name="mode" required @bind="_previewMode" aria-describedby="preview-intent-help">
                                                     <option value="">Choose preservation intent</option>
                                                     <option value="local">Use my intended local date and time</option>
-                                                    <option value="instant">Keep the existing absolute instant</option>
+                                                    <option value="instant">Keep the same absolute instant (UTC time)</option>
                                                 </select>
                                             </div>
                                             <div>
                                                 <label for="preview-local-start">Intended local start in @previewLocation.TimeZoneId</label>
                                                 <input id="preview-local-start" name="localStart" type="datetime-local" step="60" required="@(_previewMode == "local")" disabled="@(_previewMode != "local")" aria-describedby="preview-intent-help" />
                                             </div>
-                                            <p id="preview-intent-help" class="connection-hint">For local-time mode, enter the date and time you intend in the confirmed zone. This states your desired time, not an inference about the original meeting or your device settings. Keeping the absolute instant needs no date input.</p>
+                                            <p id="preview-intent-help" class="connection-hint">Enter your intended local wall-clock date and time in the confirmed zone, or keep the same absolute instant (UTC time) without a date input. We do not guess the original meeting intent from its timestamps or your device.</p>
                                             <button type="submit" class="primary" disabled="@(state.Phase != ConnectionPhase.Connected || !discovery.Complete)">Calculate read-only preview</button>
                                         </fieldset>
                                     </form>
@@ -264,7 +278,9 @@
                                     @if (state.Preview is { } preview)
                                     {
                                         <section class="preview-result" aria-labelledby="preview-result-heading">
-                                            <h3 id="preview-result-heading">Last submitted hypothetical preview: @preview.Disposition</h3>
+                                            <h3 id="preview-result-heading">Last submitted preview: @preview.Disposition</h3>
+                                            <p><strong>Meeting with source times @FormatLocal(preview.CurrentStart, preview.TimeZoneId) to @FormatLocal(preview.CurrentEnd, preview.TimeZoneId)</strong></p>
+                                            <p><strong>Start change: @PreviewChange(preview.CurrentStart, preview.ProposedStart)</strong></p>
                                             <p>@preview.Reason</p>
                                             <p class="connection-hint">Changing the form does not recalculate this result. Submit again to preview another choice.</p>
                                             <p>Times shown in <strong>@preview.TimeZoneId</strong> and UTC. A missing proposed time does not mean no change is needed.</p>
