@@ -20,7 +20,7 @@ public sealed class LocalConnectionServiceTests
         Assert.Equal(bootstrap, h.Service.Bootstrap(bootstrapPrincipal));
         Assert.Null(bootstrap.Mailbox);
         AssertProblem("sign-in-required", () => h.Service.StartDiscovery(bootstrapPrincipal, bootstrap.Version));
-        var pending = h.Service.StartSignIn(bootstrapPrincipal, bootstrap.Version, true);
+        var pending = h.Service.StartBrowserSignIn(bootstrapPrincipal, bootstrap.Version, ReturnUri);
         var waitingPrincipal = Principal(pending);
         await gate.WaitForEntryAsync();
         Assert.False(h.Service.IsCurrent(bootstrapPrincipal));
@@ -61,9 +61,11 @@ public sealed class LocalConnectionServiceTests
         Assert.Equal("hint@example.test", state.CachedAccount);
         Assert.Null(state.Mailbox);
         AssertProblem("sign-in-required", () => h.Service.StartDiscovery(Principal(bootstrap), bootstrap.Version));
-        var pending = h.Service.StartSignIn(Principal(bootstrap), state.Version, interactive);
+        var pending = interactive ? h.Service.StartBrowserSignIn(Principal(bootstrap), state.Version, ReturnUri)
+            : h.Service.StartSignIn(Principal(bootstrap), state.Version);
         var ready = await h.WaitForPhaseAsync(Principal(pending), ConnectionPhase.AwaitingCompletion);
         Assert.Equal(new[] { interactive }, h.Identity.Modes);
+        Assert.Equal(interactive ? ReturnUri : null, Assert.Single(h.Identity.Browsers)?.ReturnUri);
         Assert.Equal(Mailbox.Address, ready.CachedAccount);
         Assert.Equal(Mailbox, ready.Mailbox);
     }
@@ -76,13 +78,13 @@ public sealed class LocalConnectionServiceTests
             : Task.FromException<SignInObservation>(new MsalUiRequiredException("no-cache", "synthetic private diagnostic"));
         var bootstrap = h.Bootstrap();
         Assert.Null((await h.Service.GetStateAsync(Principal(bootstrap))).CachedAccount);
-        var pending = h.Service.StartSignIn(Principal(bootstrap), bootstrap.Version, false);
+        var pending = h.Service.StartSignIn(Principal(bootstrap), bootstrap.Version);
         var failed = await h.WaitForPhaseAsync(Principal(pending), ConnectionPhase.Failed);
         Assert.Equal("interaction-required", failed.Problem?.Code);
         Assert.DoesNotContain("private diagnostic", failed.Problem!.Message);
         Assert.Null(failed.Mailbox);
         Assert.Equal(0, h.Calendar.Verifications);
-        var retry = h.Service.StartSignIn(Principal(pending), failed.Version, true);
+        var retry = h.Service.StartBrowserSignIn(Principal(pending), failed.Version, ReturnUri);
         await h.WaitForPhaseAsync(Principal(retry), ConnectionPhase.AwaitingCompletion);
         Assert.NotNull(h.Service.Complete(Principal(retry), retry.Version).Mailbox);
         Assert.Collection(h.Identity.Modes, mode => Assert.False(mode), mode => Assert.True(mode));
@@ -107,7 +109,7 @@ public sealed class LocalConnectionServiceTests
             h.Calendar.Verify = (_, _) => Task.FromException<VerifiedMailbox>(new ConnectionException(new(rejection, "Rejected synthetic identity")));
         }
         var bootstrap = h.Bootstrap();
-        var pending = h.Service.StartSignIn(Principal(bootstrap), bootstrap.Version, true);
+        var pending = h.Service.StartBrowserSignIn(Principal(bootstrap), bootstrap.Version, ReturnUri);
         var failed = await h.WaitForPhaseAsync(Principal(pending), ConnectionPhase.Failed);
         Assert.Equal(rejection is "tenant" or "account" ? "connection-failed" : rejection, failed.Problem?.Code);
         Assert.Null(failed.Mailbox);
@@ -238,7 +240,7 @@ public sealed class LocalConnectionServiceTests
             return cancelled.Task;
         };
         var bootstrap = h.Bootstrap();
-        var pending = h.Service.StartSignIn(Principal(bootstrap), bootstrap.Version, true);
+        var pending = h.Service.StartBrowserSignIn(Principal(bootstrap), bootstrap.Version, ReturnUri);
         await entered.Task.WaitAsync(TimeSpan.FromSeconds(10));
         using var cancellationRegistration = registration;
         h.Service.Cancel(Principal(pending), pending.Version);
@@ -251,7 +253,7 @@ public sealed class LocalConnectionServiceTests
         AssertProblem("not-ready", () => h.Service.Complete(Principal(pending), pending.Version));
         Assert.Equal(0, h.Calendar.Verifications);
         h.Identity.Authenticate = (_, _) => Task.FromResult(Account);
-        var retry = h.Service.StartSignIn(Principal(pending), pending.Version, true);
+        var retry = h.Service.StartBrowserSignIn(Principal(pending), pending.Version, ReturnUri);
         await h.WaitForPhaseAsync(Principal(retry), ConnectionPhase.AwaitingCompletion);
         Assert.NotNull(h.Service.Complete(Principal(retry), retry.Version).Mailbox);
     }
@@ -266,7 +268,7 @@ public sealed class LocalConnectionServiceTests
         h.Service.ConfirmLocation(old, ticket.Version, Location);
         var gate = new Gate<SignInObservation>();
         h.Identity.Authenticate = (_, ct) => gate.RunAsync(ct);
-        var switched = h.Service.StartSignIn(old, ticket.Version, true);
+        var switched = h.Service.StartSignIn(old, ticket.Version);
         await gate.WaitForEntryAsync();
         Assert.False(h.Service.IsCurrent(old));
         var stale = await h.Service.GetStateAsync(old);
@@ -451,7 +453,7 @@ public sealed class LocalConnectionServiceTests
         var state = await h.Service.GetStateAsync(Principal(bootstrap));
         Assert.Equal(ConnectionPhase.Disabled, state.Phase);
         Assert.Equal(h.Identity.Unavailable, state.Problem);
-        AssertProblem("configuration-required", () => h.Service.StartSignIn(Principal(bootstrap), bootstrap.Version, true));
+        AssertProblem("configuration-required", () => h.Service.StartBrowserSignIn(Principal(bootstrap), bootstrap.Version, ReturnUri));
         await h.Service.SignOutAsync(Principal(bootstrap), bootstrap.Version);
         Assert.Equal(0, h.Identity.CacheReads);
         Assert.Equal(0, h.Identity.Clears);

@@ -38,7 +38,11 @@ public sealed class ConnectionEndpointTests
         {
             await AssertProblemAsync(read, HttpStatusCode.Conflict, "sign-in-required");
         }
-        using (var start = await host.PostAsync("start", ("version", bootstrapState.Version), ("mode", "interactive"))) { AssertRedirect(start); }
+        using (var start = await host.PostAsync("start", ("version", bootstrapState.Version), ("mode", "interactive")))
+        {
+            Assert.Equal(HttpStatusCode.Found, start.StatusCode);
+            Assert.Equal(AuthorizationUri, start.Headers.Location);
+        }
         var pendingCookie = host.Cookie;
         Assert.NotEqual(bootstrapCookie, pendingCookie);
         var pendingTicket = host.ReadCookie();
@@ -110,7 +114,11 @@ public sealed class ConnectionEndpointTests
         {
             await AssertProblemAsync(invalidMode, HttpStatusCode.Conflict, "invalid-mode");
         }
-        using (var valid = await host.PostAsync("start", ("version", state.Version), ("mode", "interactive"))) { AssertRedirect(valid); }
+        using (var valid = await host.PostAsync("start", ("version", state.Version), ("mode", "interactive")))
+        {
+            Assert.Equal(HttpStatusCode.Found, valid.StatusCode);
+            Assert.Equal(AuthorizationUri, valid.Headers.Location);
+        }
     }
 
     [Theory]

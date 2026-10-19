@@ -165,7 +165,7 @@ public sealed class ReadContractTests
     public async Task MailboxIdentityMismatchFailsClosedBeforeCalendarEnumeration()
     {
         using var handler = new ScriptedGraphHandler();
-        handler.Add(new { id = "different-mailbox", mail = "owner@example.test" });
+        handler.Add(new { id = "opaque-different-mailbox", mail = "owner@example.test" });
         using var client = new HttpClient(handler);
         var result = await Reader(client).DiscoverAsync(ContractFixture.Scope);
 
@@ -173,6 +173,69 @@ public sealed class ReadContractTests
         Assert.NotEmpty(result.Holds);
         Assert.Empty(result.Events);
         Assert.Single(handler.Methods);
+    }
+
+    [Fact]
+    public async Task AcceptsOpaqueMailboxIdentityDuringDiscovery()
+    {
+        const string mailboxId = "AAMkAGI2-example-opaque-id";
+        using var handler = new ScriptedGraphHandler();
+        handler.AddReadFoundation(mailboxId);
+        handler.Add(new { value = new[] { Event() } });
+        handler.Add(Event());
+        using var client = new HttpClient(handler);
+        var scope = ContractFixture.Scope with
+        {
+            Identity = ContractFixture.Identity with { MailboxId = mailboxId }
+        };
+
+        var result = await Reader(client).DiscoverAsync(scope);
+
+        Assert.True(result.Complete);
+        Assert.Equal(mailboxId, result.Scope.Identity.MailboxId);
+        Assert.Single(result.Events);
+        AssertDetailRequests(handler, "event");
+    }
+
+    [Fact]
+    public async Task ConsumerDiscoveryAcceptsProviderCanonicalCalendarOwner()
+    {
+        using var handler = new ScriptedGraphHandler();
+        const string consumerTenant = "9188040d-6c67-4c5b-b112-36a304b66dad";
+        handler.Add(new { id = "consumer-mailbox", mail = "login@example.test", userPrincipalName = "login@example.test" });
+        handler.Add(new { id = "calendar", isDefaultCalendar = true, owner = new { address = "canonical@example.test" } });
+        handler.Add(new { value = new[] { new { alias = "UTC", displayName = "UTC" } } });
+        handler.Add(new { value = new[] { new { alias = "Etc/UTC", displayName = "UTC" } } });
+        handler.Add(new { value = Array.Empty<object>() });
+        using var client = new HttpClient(handler);
+        var scope = ContractFixture.Scope with
+        {
+            Identity = new(consumerTenant, "consumer-mailbox", "calendar")
+        };
+
+        var result = await Reader(client).DiscoverAsync(scope);
+
+        Assert.True(result.Complete);
+        Assert.Empty(result.Events);
+        Assert.DoesNotContain("calendar-mismatch", result.Holds);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task MissingOrBlankMailboxIdentityIsRejectedBeforeHttp(string? mailboxId)
+    {
+        using var handler = new ScriptedGraphHandler();
+        using var client = new HttpClient(handler);
+        var scope = ContractFixture.Scope with
+        {
+            Identity = ContractFixture.Identity with { MailboxId = mailboxId! }
+        };
+
+        await Assert.ThrowsAsync<ArgumentException>(() => Reader(client).DiscoverAsync(scope));
+
+        Assert.Empty(handler.Methods);
     }
 
     [Fact]

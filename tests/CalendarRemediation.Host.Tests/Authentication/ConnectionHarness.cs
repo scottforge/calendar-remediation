@@ -10,6 +10,8 @@ internal sealed class ConnectionHarness : IAsyncDisposable
         new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero), "synthetic", "synthetic", ["Calendars.Read", "User.Read"]);
     public static readonly VerifiedMailbox Mailbox = new(new("tenant-a", "mailbox-a", "calendar-a"), "owner@example.test", "Owner");
     public static readonly ConfirmedLocation Location = new("BC", "Vancouver", "America/Vancouver");
+    public static readonly Uri ReturnUri = new("http://localhost:5009/connect");
+    public static readonly Uri AuthorizationUri = new("https://login.microsoftonline.com/tenant-a/oauth2/v2.0/authorize?client_id=synthetic");
     public FakeIdentity Identity { get; } = new();
     public FakeCalendar Calendar { get; } = new();
     public LocalConnectionService Service { get; }
@@ -26,7 +28,8 @@ internal sealed class ConnectionHarness : IAsyncDisposable
     public async Task<ConnectionTicket> ConnectAsync(bool interactive = true)
     {
         var bootstrap = Bootstrap();
-        var pending = Service.StartSignIn(Principal(bootstrap), bootstrap.Version, interactive);
+        var pending = interactive ? Service.StartBrowserSignIn(Principal(bootstrap), bootstrap.Version, ReturnUri)
+            : Service.StartSignIn(Principal(bootstrap), bootstrap.Version);
         await WaitForPhaseAsync(Principal(pending), ConnectionPhase.AwaitingCompletion);
         return Service.Complete(Principal(pending), pending.Version);
     }
@@ -73,6 +76,8 @@ internal sealed class ConnectionHarness : IAsyncDisposable
         public int CacheReads { get; private set; }
         public int Clears { get; private set; }
         public List<bool> Modes { get; } = [];
+        public List<BrowserSignInContext?> Browsers { get; } = [];
+        public bool OpenBrowser { get; set; } = true;
         public List<SignInObservation> TokenAccounts { get; } = [];
         public Func<bool, CancellationToken, Task<SignInObservation>> Authenticate { get; set; } = (_, _) => Task.FromResult(Account);
         public Func<SignInObservation, CancellationToken, Task<string>> Acquire { get; set; } = (_, _) => Task.FromResult("synthetic-token");
@@ -83,10 +88,12 @@ internal sealed class ConnectionHarness : IAsyncDisposable
             CacheReads++;
             return Task.FromResult(CachedAccount);
         }
-        public Task<SignInObservation> AuthenticateAsync(bool interactive, CancellationToken cancellationToken)
+        public async Task<SignInObservation> AuthenticateAsync(bool interactive, BrowserSignInContext? browser, CancellationToken cancellationToken)
         {
             Modes.Add(interactive);
-            return Authenticate(interactive, cancellationToken);
+            Browsers.Add(browser);
+            if (interactive && OpenBrowser) { await browser!.OpenBrowserAsync(AuthorizationUri); }
+            return await Authenticate(interactive, cancellationToken);
         }
         public Task<string> AcquireReadTokenAsync(SignInObservation account, CancellationToken cancellationToken)
         {
