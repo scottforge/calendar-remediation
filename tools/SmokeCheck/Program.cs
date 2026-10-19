@@ -81,6 +81,7 @@ try
     var assetPaths = Regex.Matches(html, "(?:href|src)=\"([^\"]+)\"", RegexOptions.CultureInvariant)
         .Select(match => WebUtility.HtmlDecode(match.Groups[1].Value))
         .Where(path => path.EndsWith(".css", StringComparison.Ordinal) || path.Contains("_framework/blazor.web.", StringComparison.Ordinal))
+        .Append("Review/Connect.razor.js")
         .Distinct(StringComparer.Ordinal)
         .ToArray();
     if (assetPaths.Count(path => path.EndsWith(".css", StringComparison.Ordinal)) < 2
