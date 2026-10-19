@@ -150,7 +150,7 @@
 #*.vcxitems  merge=binary
 
 # CSharp
-*.cs       text diff=csharp
+*.cs       text eol=lf diff=csharp
 *.cshtml   text diff=html
 *.csx      text diff=csharp
 *.slnx     text eol=crlf
