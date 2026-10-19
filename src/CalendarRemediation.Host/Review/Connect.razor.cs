@@ -72,11 +72,17 @@ public partial class Connect : IAsyncDisposable
         catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
         catch (Exception ex) when (ex is JSException or OperationCanceledException)
         {
+            LogCompletionFailure(Logger, "automatic completion", ex.GetType().Name);
             if (!_disposed && _state?.Phase == ConnectionPhase.AwaitingCompletion && _state.Version == version)
             {
                 _completionFailed = true;
                 StateHasChanged();
             }
+        }
+        catch (Exception ex)
+        {
+            LogCompletionFault(Logger, "automatic completion", ex.GetType().Name);
+            throw;
         }
     }
 
@@ -97,6 +103,11 @@ public partial class Connect : IAsyncDisposable
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
+        catch (Exception ex)
+        {
+            LogPollingFailure(Logger, "polling", ex.GetType().Name);
+            throw;
+        }
     }
 
     private async Task RefreshAsync(CancellationToken cancellationToken)
@@ -120,7 +131,7 @@ public partial class Connect : IAsyncDisposable
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
         catch (Exception ex)
         {
-            LogRefreshFailure(Logger, ex);
+            if (_refreshError is null) { LogRefreshFailure(Logger, "refresh", ex.GetType().Name); }
             _state = null;
             _province = _community = _timeZoneId = "";
             _previewMode = "";
@@ -128,8 +139,17 @@ public partial class Connect : IAsyncDisposable
         }
     }
 
-    [LoggerMessage(Level = LogLevel.Warning, Message = "Unable to refresh local connection status")]
-    private static partial void LogRefreshFailure(ILogger logger, Exception exception);
+    [LoggerMessage(EventId = 7101, Level = LogLevel.Warning, Message = "Unable to refresh local connection status during {Phase}; exception type {ExceptionType}")]
+    private static partial void LogRefreshFailure(ILogger logger, string phase, string exceptionType);
+
+    [LoggerMessage(EventId = 7102, Level = LogLevel.Warning, Message = "Unable to complete sign-in during {Phase}; exception type {ExceptionType}")]
+    private static partial void LogCompletionFailure(ILogger logger, string phase, string exceptionType);
+
+    [LoggerMessage(EventId = 7302, Level = LogLevel.Error, Message = "Connection status polling failed during {Phase}; exception type {ExceptionType}")]
+    private static partial void LogPollingFailure(ILogger logger, string phase, string exceptionType);
+
+    [LoggerMessage(EventId = 7301, Level = LogLevel.Error, Message = "Connection UI failed during {Phase}; exception type {ExceptionType}")]
+    private static partial void LogCompletionFault(ILogger logger, string phase, string exceptionType);
 
     private void ChangeProvince(ChangeEventArgs args)
     {
@@ -167,10 +187,14 @@ public partial class Connect : IAsyncDisposable
             try { await _module.DisposeAsync(); }
             catch (JSDisconnectedException) { }
             catch (OperationCanceledException) { }
+            catch (JSException ex) { LogModuleDisposalFailure(Logger, "module disposal", ex.GetType().Name); }
         }
         _lifetime.Dispose();
         GC.SuppressFinalize(this);
     }
+
+    [LoggerMessage(EventId = 7103, Level = LogLevel.Warning, Message = "Unable to dispose the connection interop module during {Phase}; exception type {ExceptionType}")]
+    private static partial void LogModuleDisposalFailure(ILogger logger, string phase, string exceptionType);
 
     private static string PreviewChange(DateTimeOffset? current, DateTimeOffset? proposed)
     {

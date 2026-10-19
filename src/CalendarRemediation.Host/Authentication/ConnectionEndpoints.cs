@@ -9,7 +9,7 @@ using Microsoft.Extensions.Options;
 
 namespace CalendarRemediation.Host.Authentication;
 
-public static class ConnectionEndpoints
+public static partial class ConnectionEndpoints
 {
     public const string Scheme = "LocalConnection";
 
@@ -53,6 +53,7 @@ public static class ConnectionEndpoints
         var options = context.RequestServices.GetRequiredService<IOptions<LocalConnectionOptions>>().Value;
         if (!IsAllowedLocalRequest(context.Request, context.Connection.RemoteIpAddress, options.Port))
         {
+            RequestRejected(Logger(context), "local-request", "local-request-rejected", "None");
             context.Response.StatusCode = StatusCodes.Status403Forbidden;
             return;
         }
@@ -72,8 +73,16 @@ public static class ConnectionEndpoints
     {
         app.MapGet("/connection/antiforgery", (HttpContext context, IAntiforgery antiforgery) =>
         {
-            var tokens = antiforgery.GetAndStoreTokens(context);
-            return Results.Ok(new { tokens.RequestToken, tokens.FormFieldName, tokens.HeaderName });
+            try
+            {
+                var tokens = antiforgery.GetAndStoreTokens(context);
+                return Results.Ok(new { tokens.RequestToken, tokens.FormFieldName, tokens.HeaderName });
+            }
+            catch (Exception ex)
+            {
+                RequestFailed(Logger(context), "antiforgery", "antiforgery-unavailable", ex.GetType().Name);
+                throw;
+            }
         });
         app.MapGet("/connection/state", async (HttpContext context, LocalConnectionService connection) =>
         {
@@ -166,16 +175,20 @@ public static class ConnectionEndpoints
         Func<HttpContext, LocalConnectionService, IFormCollection, Task<IResult>> handler) =>
         app.MapPost("/connection/" + action, async (HttpContext context, IAntiforgery antiforgery, LocalConnectionService connection) =>
         {
+            var logger = Logger(context);
+            using var scope = logger.BeginScope(new Dictionary<string, object> { ["ConnectionRequestId"] = Guid.NewGuid() });
             try
             {
                 if (!SameOrigin(context.Request.Headers.Origin.ToString(), context.Request)
                     && !SameOrigin(context.Request.Headers.Referer.ToString(), context.Request))
                 {
+                    RequestRejected(logger, action, "invalid-origin", "None");
                     return Results.Json(new ConnectionProblem("invalid-origin", "Open the connection page in this local browser."), statusCode: 403);
                 }
                 await antiforgery.ValidateRequestAsync(context);
                 if (!context.Request.HasFormContentType || context.Request.ContentLength > 16 * 1024)
                 {
+                    RequestRejected(logger, action, "invalid-form", "None");
                     return Results.BadRequest(new ConnectionProblem("invalid-form", "Submit the connection form again."));
                 }
                 var form = await context.Request.ReadFormAsync(context.RequestAborted);
@@ -183,18 +196,45 @@ public static class ConnectionEndpoints
             }
             catch (AntiforgeryValidationException)
             {
+                RequestRejected(logger, action, "antiforgery-rejected", nameof(AntiforgeryValidationException));
                 return Results.BadRequest(new ConnectionProblem("invalid-form", "The form expired. Reload Connect and try again."));
             }
             catch (InvalidDataException)
             {
+                RequestRejected(logger, action, "invalid-form", nameof(InvalidDataException));
                 return Results.BadRequest(new ConnectionProblem("invalid-form", "The connection form was invalid. Reload Connect and try again."));
             }
-            catch (ConnectionException ex) { return Results.Json(ex.Problem, statusCode: 409); }
+            catch (ConnectionException ex)
+            {
+                RequestRejected(logger, action, LocalConnectionService.SafeReason(ex.Problem.Code), nameof(ConnectionException));
+                return Results.Json(ex.Problem, statusCode: 409);
+            }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.Cryptography.CryptographicException)
             {
+                RequestFailed(logger, action, "account-cache-unavailable", ex.GetType().Name);
                 return Results.Json(new ConnectionProblem("account-cache-unavailable", "The account cache could not be cleared. Close other app instances and retry."), statusCode: 503);
             }
+            catch (OperationCanceledException) when (context.RequestAborted.IsCancellationRequested) { throw; }
+            catch (OperationCanceledException ex)
+            {
+                RequestRejected(logger, action, "operation-timeout-or-provider-cancelled", ex.GetType().Name);
+                throw;
+            }
+            catch (Exception ex)
+            {
+                RequestFailed(logger, action, "unexpected-fault", ex.GetType().Name);
+                throw;
+            }
         });
+
+    private static ILogger Logger(HttpContext context) => context.RequestServices.GetRequiredService<ILoggerFactory>()
+        .CreateLogger(typeof(ConnectionEndpoints).FullName!);
+
+    [LoggerMessage(7111, LogLevel.Warning, "Connection action {Action} rejected: {Reason}; exception type {ExceptionType}")]
+    private static partial void RequestRejected(ILogger logger, string action, string reason, string exceptionType);
+
+    [LoggerMessage(7112, LogLevel.Error, "Connection action {Action} faulted: {Reason}; exception type {ExceptionType}")]
+    private static partial void RequestFailed(ILogger logger, string action, string reason, string exceptionType);
 
     private static async Task<IResult> BrowserSignInAsync(HttpContext context, LocalConnectionService connection, IFormCollection form)
     {

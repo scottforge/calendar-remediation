@@ -1,8 +1,11 @@
+using System.Diagnostics;
 using System.Security.Claims;
 using System.Security.Cryptography;
 using CalendarRemediation.Core.Discovery;
 using CalendarRemediation.Core.Planning;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Identity.Client;
+using LogLevel = Microsoft.Extensions.Logging.LogLevel;
 
 namespace CalendarRemediation.Host.Authentication;
 
@@ -10,8 +13,10 @@ public sealed record ConnectionTicket(string Id, string Version, VerifiedMailbox
 
 // One local owner, one account generation, and one serialized MSAL/Graph work lane.
 // Blazor callers must pass their original principal on every call, never a cached state DTO.
-public sealed class LocalConnectionService(ILocalIdentityClient identity, ILocalCalendarClient calendar) : IAsyncDisposable
+public sealed partial class LocalConnectionService(ILocalIdentityClient identity, ILocalCalendarClient calendar,
+    ILogger<LocalConnectionService>? logger = null) : IAsyncDisposable
 {
+    private readonly ILogger<LocalConnectionService> _logger = logger ?? NullLogger<LocalConnectionService>.Instance;
     public const string SessionClaim = "calendar_connection";
     private readonly object _sync = new();
     private readonly SemaphoreSlim _work = new(1, 1);
@@ -66,11 +71,22 @@ public sealed class LocalConnectionService(ILocalIdentityClient identity, ILocal
         {
             lock (_sync) { RequireCurrent(session); }
             var cached = await identity.GetCachedAccountAsync(cancellationToken);
-            lock (_sync) { RequireCurrent(session); session.CachedAccount = cached; }
+            lock (_sync) { RequireCurrent(session); session.CachedAccount = cached; session.LastCacheFailure = null; }
         }
         catch (Exception ex) when (IsRecoverable(ex))
         {
-            lock (_sync) { RequireCurrent(session); session.Problem = Problem(ex); }
+            lock (_sync)
+            {
+                RequireCurrent(session);
+                if (session.LastCacheFailure != ex.GetType()) { LogFailure("cached-account", ex, 0, connectionOperationId: Guid.NewGuid()); }
+                session.LastCacheFailure = ex.GetType();
+                session.Problem = Problem(ex);
+            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+        {
+            LogFailure("cached-account", ex, 0, connectionOperationId: Guid.NewGuid());
+            throw;
         }
         finally { _work.Release(); }
         lock (_sync) { RequireCurrent(session); return State(session); }
@@ -110,7 +126,7 @@ public sealed class LocalConnectionService(ILocalIdentityClient identity, ILocal
         Invalidate();
         var session = new Session { Phase = ConnectionPhase.SigningIn };
         _session = session;
-        Track(session, ct => SignInAsync(session, returnUri, ct));
+        Track(session, "sign-in", ct => SignInAsync(session, returnUri, ct));
         return Ticket(session);
     }
 
@@ -144,6 +160,10 @@ public sealed class LocalConnectionService(ILocalIdentityClient identity, ILocal
             {
                 if (ReferenceEquals(_session, session) && session.Phase == ConnectionPhase.SigningIn)
                 {
+                    if (ex is TimeoutException && !cancellationToken.IsCancellationRequested)
+                    {
+                        LogFailure("browser-handoff", ex, 15000);
+                    }
                     session.Revision++;
                     session.Problem = Problem(new OperationCanceledException());
                     session.Phase = ConnectionPhase.Failed;
@@ -213,7 +233,7 @@ public sealed class LocalConnectionService(ILocalIdentityClient identity, ILocal
             session.Discovery = null;
             session.DiscoveryResult = null;
             session.Problem = null;
-            Track(session, ct => DiscoverAsync(session, session.Revision, ct));
+            Track(session, "discovery", ct => DiscoverAsync(session, session.Revision, ct));
         }
     }
 
@@ -306,7 +326,11 @@ public sealed class LocalConnectionService(ILocalIdentityClient identity, ILocal
             }
             return Task.CompletedTask;
         });
+        var operation = browser is null ? "silent-continuation" : "interactive-authorization";
+        var started = Stopwatch.GetTimestamp();
+        IdentityOperationStarted(_logger, operation, "unverified");
         var account = await identity.AuthenticateAsync(browser is not null, browser, ct);
+        IdentityOperationCompleted(_logger, operation, AccountType(account), (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds);
         var mailbox = await calendar.VerifyAsync(account, tokenCt => AcquireTokenAsync(session, account, tokenCt), ct);
         lock (_sync)
         {
@@ -354,12 +378,19 @@ public sealed class LocalConnectionService(ILocalIdentityClient identity, ILocal
     private async Task<string> AcquireTokenAsync(Session session, SignInObservation account, CancellationToken ct)
     {
         lock (_sync) { RequireCurrent(session); ct.ThrowIfCancellationRequested(); }
+        var started = Stopwatch.GetTimestamp();
+        var accountType = AccountType(account);
+        IdentityOperationStarted(_logger, "token-acquisition", accountType);
         var token = await identity.AcquireReadTokenAsync(account, ct);
         lock (_sync) { RequireCurrent(session); ct.ThrowIfCancellationRequested(); }
+        IdentityOperationCompleted(_logger, "token-acquisition", accountType, (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds);
         return token;
     }
 
-    private void Track(Session session, Func<CancellationToken, Task> action)
+    private static string AccountType(SignInObservation account) =>
+        string.Equals(account.TenantId, TenantSignIn.ConsumerTenantId, StringComparison.OrdinalIgnoreCase) ? "personal" : "configured-organization";
+
+    private void Track(Session session, string operation, Func<CancellationToken, Task> action)
     {
         session.Operation?.Cancel();
         var source = new CancellationTokenSource(TimeSpan.FromMinutes(5));
@@ -368,6 +399,9 @@ public sealed class LocalConnectionService(ILocalIdentityClient identity, ILocal
         _tasks.RemoveAll(task => task.IsCompleted);
         _tasks.Add(Task.Run(async () =>
         {
+            var connectionOperationId = Guid.NewGuid();
+            using var scope = _logger.BeginScope(new Dictionary<string, object> { ["ConnectionOperationId"] = connectionOperationId });
+            var started = Stopwatch.GetTimestamp();
             var entered = false;
             try
             {
@@ -381,7 +415,14 @@ public sealed class LocalConnectionService(ILocalIdentityClient identity, ILocal
                 // Observe every tracked task, and expose only typed, non-sensitive errors.
                 lock (_sync)
                 {
-                    if (ReferenceEquals(_session, session) && session.Revision == revision && !_disposed)
+                    var current = ReferenceEquals(_session, session) && session.Revision == revision && !_disposed;
+                    if ((current && ex is not ConnectionException { Problem.Code: "stale-session" })
+                        || (ex is not (OperationCanceledException or TimeoutException) && !IsRecoverable(ex)))
+                    {
+                        LogFailure(operation, ex, (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds,
+                            session.Phase.ToString(), connectionOperationId);
+                    }
+                    if (current)
                     {
                         session.Problem = Problem(ex);
                         session.Phase = session.Account is null ? ConnectionPhase.Failed : ConnectionPhase.Connected;
@@ -459,6 +500,49 @@ public sealed class LocalConnectionService(ILocalIdentityClient identity, ILocal
         _ => new("connection-failed", "The connection could not be verified. Try signing in again.")
     };
 
+    private void LogFailure(string operation, Exception exception, long elapsedMilliseconds, string phase = "SignedOut",
+        Guid? connectionOperationId = null)
+    {
+        var reason = exception switch
+        {
+            ConnectionException connection => SafeReason(connection.Problem.Code),
+            TimeoutException or OperationCanceledException => "operation-timeout-or-provider-cancelled",
+            MsalUiRequiredException => "interaction-required",
+            MsalException => "sign-in-failed",
+            IOException or UnauthorizedAccessException or CryptographicException => "account-cache-unavailable",
+            InvalidOperationException => "identity-validation-failed",
+            _ => "unexpected-fault"
+        };
+        if (reason == "unexpected-fault" || exception is IOException or UnauthorizedAccessException or CryptographicException)
+        {
+            OperationFailed(_logger, operation, phase, reason, exception.GetType().Name, elapsedMilliseconds, connectionOperationId ?? Guid.NewGuid());
+        }
+        else { OperationRejected(_logger, operation, phase, reason, exception.GetType().Name, elapsedMilliseconds, connectionOperationId ?? Guid.NewGuid()); }
+    }
+
+    internal static string SafeReason(string code) => code switch
+    {
+        "busy" or "configuration-required" or "stale-session" or "not-ready" or "invalid-location"
+            or "location-required" or "discovery-required" or "invalid-zone" or "invalid-meeting"
+            or "zone-unavailable" or "sign-in-required" or "invalid-mode" or "invalid-time"
+            or "interaction-required" or "sign-in-failed" or "account-cache-unavailable"
+            or "identity-mismatch" or "calendar-mismatch" or "mailbox-unavailable" or "graph-unavailable" or "invalid-identity"
+            or "connection-failed" => code,
+        _ => "connection-rejected"
+    };
+
+    [LoggerMessage(7101, LogLevel.Warning, "Connection operation {Operation} failed in phase {Phase}: {Reason}; exception type {ExceptionType}; elapsed {ElapsedMilliseconds} ms; connection operation id {ConnectionOperationId}")]
+    private static partial void OperationRejected(ILogger logger, string operation, string phase, string reason, string exceptionType, long elapsedMilliseconds, Guid connectionOperationId);
+
+    [LoggerMessage(7102, LogLevel.Error, "Connection operation {Operation} faulted in phase {Phase}: {Reason}; exception type {ExceptionType}; elapsed {ElapsedMilliseconds} ms; connection operation id {ConnectionOperationId}")]
+    private static partial void OperationFailed(ILogger logger, string operation, string phase, string reason, string exceptionType, long elapsedMilliseconds, Guid connectionOperationId);
+
+    [LoggerMessage(7103, LogLevel.Information, "Microsoft identity operation {Operation} started; account type {AccountType}")]
+    private static partial void IdentityOperationStarted(ILogger logger, string operation, string accountType);
+
+    [LoggerMessage(7104, LogLevel.Information, "Microsoft identity operation {Operation} completed; account type {AccountType}; elapsed {ElapsedMilliseconds} ms")]
+    private static partial void IdentityOperationCompleted(ILogger logger, string operation, string accountType, long elapsedMilliseconds);
+
     public async ValueTask DisposeAsync()
     {
         Task[] tasks;
@@ -481,6 +565,7 @@ public sealed class LocalConnectionService(ILocalIdentityClient identity, ILocal
         public DateTimeOffset Expires { get; } = DateTimeOffset.UtcNow.AddHours(8);
         public ConnectionPhase Phase { get; set; } = ConnectionPhase.SignedOut;
         public string? CachedAccount { get; set; }
+        public Type? LastCacheFailure { get; set; }
         public SignInObservation? Account { get; set; }
         public VerifiedMailbox? Mailbox { get; set; }
         public ConfirmedLocation? Location { get; set; }

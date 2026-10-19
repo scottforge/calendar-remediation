@@ -1,17 +1,20 @@
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 
 namespace CalendarRemediation.Host.Authentication;
 
-public sealed class LocalIdentityClient : ILocalIdentityClient
+public sealed partial class LocalIdentityClient : ILocalIdentityClient
 {
     private readonly object _sync = new();
     private readonly TenantSignInOptions _options;
     private TenantSignIn? _signIn;
     private bool _disposed;
+    private readonly ILoggerFactory _loggerFactory;
     public ConnectionProblem? Unavailable { get; }
 
-    public LocalIdentityClient(IOptions<LocalConnectionOptions> options)
+    public LocalIdentityClient(IOptions<LocalConnectionOptions> options, ILoggerFactory? loggerFactory = null)
     {
+        _loggerFactory = loggerFactory ?? NullLoggerFactory.Instance;
         var value = options.Value;
         Unavailable = !Guid.TryParse(value.TenantId, out _) || !Guid.TryParse(value.ClientId, out _)
                 ? new("configuration-required", "Configure the Microsoft 365 tenant and public client IDs to enable connection.")
@@ -24,7 +27,11 @@ public sealed class LocalIdentityClient : ILocalIdentityClient
         {
             Unavailable = new("configuration-required", "Protected account storage requires an absolute per-user cache directory.");
         }
-        _options = new(value.TenantId, value.ClientId, "", directory);
+        _options = new(value.TenantId, value.ClientId, "", directory, AllowPersonalAccounts: true);
+        if (Unavailable is not null)
+        {
+            ConfigurationUnavailable(_loggerFactory.CreateLogger<LocalIdentityClient>(), "configuration-required");
+        }
     }
 
     public Task<string?> GetCachedAccountAsync(CancellationToken cancellationToken) => Client().GetCachedAccountAsync(cancellationToken);
@@ -50,9 +57,12 @@ public sealed class LocalIdentityClient : ILocalIdentityClient
             ObjectDisposedException.ThrowIf(_disposed, this);
             if (Unavailable is not null) { throw new ConnectionException(Unavailable); }
             // Failed cache ownership/protection attempts may be retried after the cause is fixed.
-            return _signIn ??= new(_options);
+            return _signIn ??= new(_options, _loggerFactory.CreateLogger<TenantSignIn>());
         }
     }
+
+    [LoggerMessage(7121, LogLevel.Warning, "Identity operation initialize unavailable: {Reason}")]
+    private static partial void ConfigurationUnavailable(ILogger logger, string reason);
 
     public void Dispose()
     {

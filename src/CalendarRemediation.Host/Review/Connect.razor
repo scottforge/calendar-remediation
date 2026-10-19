@@ -47,7 +47,8 @@
                     <button type="button" class="primary" disabled>Sign in with Microsoft</button>
                     <details class="connection-setup">
                         <summary>Developer configuration</summary>
-                        <p>Configure a Microsoft Entra public-client registration with the <code>http://localhost</code> loopback callback. Set <code>LocalConnection__TenantId</code> and <code>LocalConnection__ClientId</code> to the registration's GUIDs, then restart the app. No client secret is needed.</p>
+                        <p>Use an app registration that supports work/school and personal Microsoft accounts, with <code>api.requestedAccessTokenVersion</code> set to <code>2</code>. Add the <code>http://localhost</code> desktop callback. Set <code>LocalConnection__TenantId</code> to your organization tenant GUID and <code>LocalConnection__ClientId</code> to the app registration GUID, then restart the app. No client secret is needed.</p>
+                        <p>The tenant GUID pins work/school sign-in to your organization; personal Microsoft account sign-in, such as Outlook.com, is still allowed.</p>
                         <p>Open the localhost address printed at startup. Windows protects the persistent account cache. Other platforms keep tokens in memory, so restarting requires sign-in again.</p>
                         @if (state.Problem is { } setupProblem)
                         {
@@ -61,7 +62,7 @@
             {
                 <section class="panel connection-card" aria-labelledby="bootstrap-heading">
                     <h2 id="bootstrap-heading">1. Account</h2>
-                    <p>Sign in with the Microsoft 365 account whose calendar you want to preview.</p>
+                    <p>Sign in with the Microsoft 365 or Outlook.com account whose calendar you want to preview.</p>
                     <form method="post" action="/connection/signin" data-enhance="false">
                         <AntiforgeryToken />
                         <input type="hidden" name="version" value="@state.Version" />

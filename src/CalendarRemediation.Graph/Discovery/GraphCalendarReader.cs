@@ -5,6 +5,8 @@ namespace CalendarRemediation.Graph.Discovery;
 
 public sealed class GraphCalendarReader(GraphTransport transport) : ICalendarReader
 {
+    private const string ConsumerTenantId = "9188040d-6c67-4c5b-b112-36a304b66dad";
+
     public async Task<DiscoveryResult> DiscoverAsync(DiscoveryScope scope, CancellationToken cancellationToken = default)
     {
         ValidateIdentity(scope.Identity);
@@ -104,8 +106,11 @@ public sealed class GraphCalendarReader(GraphTransport transport) : ICalendarRea
         if (GraphJson.Text(me, "id") != identity.MailboxId) { return "identity-mismatch"; }
         var calendar = await GetAsync(GraphApi.DefaultCalendarUrl, ct).ConfigureAwait(false);
         var owner = calendar.TryGetProperty("owner", out var ownerValue) ? GraphJson.Text(ownerValue, "address") : null;
+        var consumer = string.Equals(identity.TenantId, ConsumerTenantId, StringComparison.OrdinalIgnoreCase);
+        var ownerBoundByConsumerMeRoute = consumer && !string.IsNullOrWhiteSpace(owner);
         if (GraphJson.Text(calendar, "id") != identity.CalendarId || GraphJson.Boolean(calendar, "isDefaultCalendar") != true || string.IsNullOrWhiteSpace(owner)
-            || !(string.Equals(owner, GraphJson.Text(me, "mail"), StringComparison.OrdinalIgnoreCase)
+            || !(ownerBoundByConsumerMeRoute
+                || string.Equals(owner, GraphJson.Text(me, "mail"), StringComparison.OrdinalIgnoreCase)
                 || string.Equals(owner, GraphJson.Text(me, "userPrincipalName"), StringComparison.OrdinalIgnoreCase)))
         {
             return "calendar-mismatch";
@@ -122,7 +127,7 @@ public sealed class GraphCalendarReader(GraphTransport transport) : ICalendarRea
 
     private static void ValidateIdentity(CalendarIdentity identity)
     {
-        if (!Guid.TryParse(identity.TenantId, out _) || !Guid.TryParse(identity.MailboxId, out _) || string.IsNullOrWhiteSpace(identity.CalendarId))
+        if (!Guid.TryParse(identity.TenantId, out _) || string.IsNullOrWhiteSpace(identity.MailboxId) || string.IsNullOrWhiteSpace(identity.CalendarId))
         {
             throw new ArgumentException("An explicit tenant, mailbox, and calendar are required.", nameof(identity));
         }
