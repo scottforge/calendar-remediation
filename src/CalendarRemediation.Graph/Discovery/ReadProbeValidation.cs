@@ -53,8 +53,13 @@ internal static class ReadProbeValidation
     private static bool HasBoolean(JsonElement item, string field) => item.TryGetProperty(field, out var value)
         && value.ValueKind is JsonValueKind.True or JsonValueKind.False;
 
-    private static bool HasDateTimeZone(JsonElement item, string field) => item.TryGetProperty(field, out var value)
-        && !string.IsNullOrWhiteSpace(GraphJson.Text(value, "timeZone"))
-        && DateTime.TryParseExact(GraphJson.Text(value, "dateTime"), DateTimeFormats,
-            CultureInfo.InvariantCulture, DateTimeStyles.None, out _);
+    private static bool HasDateTimeZone(JsonElement item, string field)
+    {
+        if (!item.TryGetProperty(field, out var value)) { return false; }
+        var zone = GraphJson.Text(value, "timeZone");
+        var dateTime = GraphJson.Text(value, "dateTime");
+        if (string.IsNullOrWhiteSpace(zone) || dateTime is null) { return false; }
+        if (zone == "UTC") { return GraphEventParser.ParseTime(item, field).Instant is not null; }
+        return DateTime.TryParseExact(dateTime, DateTimeFormats, CultureInfo.InvariantCulture, DateTimeStyles.None, out _);
+    }
 }
