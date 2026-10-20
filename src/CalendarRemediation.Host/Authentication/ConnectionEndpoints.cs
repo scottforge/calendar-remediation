@@ -21,7 +21,6 @@ public static partial class ConnectionEndpoints
         services.AddSingleton<LocalConnectionService>();
         services.AddAuthentication(Scheme).AddCookie(Scheme, options =>
         {
-            options.Cookie.Name = "CalendarRemediation.Connection";
             options.Cookie.HttpOnly = true;
             options.Cookie.SameSite = SameSiteMode.Strict;
             // The local app is deliberately HTTP loopback only.
@@ -42,6 +41,11 @@ public static partial class ConnectionEndpoints
                 OnRedirectToAccessDenied = context => { context.Response.StatusCode = 403; return Task.CompletedTask; }
             };
         });
+        services.AddOptions<CookieAuthenticationOptions>(Scheme).Configure<IOptions<LocalConnectionOptions>>((options, local) =>
+            options.Cookie.Name = "CalendarRemediation.Connection." + local.Value.Port.ToString(CultureInfo.InvariantCulture));
+        services.AddAntiforgery();
+        services.AddOptions<AntiforgeryOptions>().Configure<IOptions<LocalConnectionOptions>>((options, local) =>
+            options.Cookie.Name = "CalendarRemediation.Antiforgery." + local.Value.Port.ToString(CultureInfo.InvariantCulture));
         services.AddAuthorization();
         services.AddCascadingAuthenticationState();
         services.ConfigureHttpJsonOptions(options => options.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
@@ -111,7 +115,11 @@ public static partial class ConnectionEndpoints
         });
         MapAction(app, "cancel", (context, connection, form) =>
         {
-            connection.Cancel(context.User, form["version"].ToString());
+            if (!int.TryParse(form["operationRevision"].ToString(), NumberStyles.None, CultureInfo.InvariantCulture, out var revision))
+            {
+                throw new ConnectionException(new("stale-session", "The operation changed. Reload Connect before cancelling."));
+            }
+            connection.Cancel(context.User, form["version"].ToString(), revision);
             return Task.CompletedTask;
         });
         MapAction(app, "location", (context, connection, form) =>
