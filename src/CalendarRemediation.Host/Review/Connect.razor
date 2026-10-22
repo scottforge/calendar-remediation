@@ -125,6 +125,7 @@
                             <form method="post" action="/connection/cancel" data-enhance="false">
                                 <AntiforgeryToken />
                                 <input type="hidden" name="version" value="@state.Version" />
+                                <input type="hidden" name="operationRevision" value="@state.OperationRevision.ToString(System.Globalization.CultureInfo.InvariantCulture)" />
                                 <button type="submit" class="secondary">Cancel @(state.Phase == ConnectionPhase.Discovering ? "calendar read" : "sign-in")</button>
                             </form>
                         }

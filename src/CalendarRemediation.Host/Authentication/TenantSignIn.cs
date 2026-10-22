@@ -121,7 +121,7 @@ public sealed partial class TenantSignIn : IDisposable
                         + "\"><title>Returning to Connect</title></head><body>Returning to Connect.</body></html>"
                 })
                 .WithPrompt(Prompt.SelectAccount).ExecuteAsync(ct);
-            try { ValidateResult(_options, result); }
+            try { SignInAccountPolicy.ValidateResult(_options, result); }
             catch
             {
                 await _application.RemoveAsync(result.Account);
@@ -154,9 +154,9 @@ public sealed partial class TenantSignIn : IDisposable
             ObjectDisposedException.ThrowIf(_disposed, this);
             var accounts = (await _application.GetAccountsAsync()).ToArray();
             if (accounts.Length != 1) { throw new InvalidOperationException("Choose an account using browser sign-in."); }
-            var tenant = SilentTenant(_options, accounts[0], null);
+            var tenant = SignInAccountPolicy.SilentTenant(_options, accounts[0], null);
             var result = await _application.AcquireTokenSilent(Scopes(false), accounts[0]).WithTenantId(tenant).ExecuteAsync(ct);
-            ValidateSilentResult(_options, result, accounts[0], tenant);
+            SignInAccountPolicy.ValidateSilentResult(_options, result, accounts[0], tenant);
             return new(result.TenantId, _options.ClientId, result.UniqueId, result.Account.HomeAccountId.Identifier,
                 DateTimeOffset.UtcNow, _persistentCache ? "MSAL protected cached account" : "MSAL process-local in-memory cached account",
                 _persistentCache ? "Windows DPAPI CurrentUser" : "In-memory only; tokens are lost when the process exits", Scopes(false), result.Account.Username);
@@ -179,9 +179,9 @@ public sealed partial class TenantSignIn : IDisposable
             {
                 throw new InvalidOperationException("Exactly one cached account is required. Clear cache and sign in explicitly.");
             }
-            var tenant = SilentTenant(_options, accounts[0], expected);
+            var tenant = SignInAccountPolicy.SilentTenant(_options, accounts[0], expected);
             var result = await _application.AcquireTokenSilent(Scopes(write), accounts[0]).WithTenantId(tenant).ExecuteAsync(ct);
-            ValidateSilentResult(_options, result, accounts[0], tenant, expected);
+            SignInAccountPolicy.ValidateSilentResult(_options, result, accounts[0], tenant, expected);
             return result.AccessToken;
         }
         finally { _operations.Release(); }
@@ -200,67 +200,6 @@ public sealed partial class TenantSignIn : IDisposable
             if (_persistentCache) { File.Delete(_cachePath); }
         }
         finally { _operations.Release(); }
-    }
-
-    private static void ValidateSilentResult(TenantSignInOptions options, AuthenticationResult result, IAccount selected,
-        string tenant, SignInObservation? expected = null)
-    {
-        ValidateResult(options, result, expected);
-        if (result.Account.HomeAccountId.Identifier != selected.HomeAccountId.Identifier
-            || !string.Equals(result.TenantId, tenant, StringComparison.OrdinalIgnoreCase))
-        {
-            throw new InvalidOperationException("The cached account changed. Sign in again.");
-        }
-    }
-
-    private static string SilentTenant(TenantSignInOptions options, IAccount account, SignInObservation? expected)
-    {
-        if (string.IsNullOrWhiteSpace(account.HomeAccountId?.Identifier)
-            || (expected is not null && account.HomeAccountId.Identifier != expected.HomeAccountId))
-        {
-            throw new InvalidOperationException("The cached account changed. Sign in again.");
-        }
-        var tenant = expected?.TenantId ?? CachedTenant(options, account.GetTenantProfiles()?.Select(profile => profile.TenantId) ?? []);
-        if (!AllowedTenant(options, tenant))
-        {
-            throw new InvalidOperationException("Unexpected tenant or account. No Graph request is permitted.");
-        }
-        return tenant;
-    }
-
-    private static string CachedTenant(TenantSignInOptions options, IEnumerable<string> profileTenants)
-    {
-        if (!options.AllowPersonalAccounts) { return options.TenantId; }
-        // Home tenant alone cannot distinguish a consumer mailbox from that account's organization guest profile.
-        var tenants = profileTenants.Where(tenant => AllowedTenant(options, tenant)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
-        if (tenants.Length != 1) { throw new InvalidOperationException("Choose an account using browser sign-in."); }
-        return tenants[0];
-    }
-
-    private static bool AllowedTenant(TenantSignInOptions options, string tenant) => Guid.TryParse(tenant, out _)
-        && (string.Equals(tenant, ConsumerTenantId, StringComparison.OrdinalIgnoreCase)
-            ? options.AllowPersonalAccounts
-            : string.Equals(tenant, options.TenantId, StringComparison.OrdinalIgnoreCase));
-
-    private static void ValidateResult(TenantSignInOptions options, AuthenticationResult result, SignInObservation? expected = null)
-    {
-        var consumer = string.Equals(result.TenantId, ConsumerTenantId, StringComparison.OrdinalIgnoreCase);
-        var comparison = consumer ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
-        if (!AllowedTenant(options, result.TenantId)
-            || string.IsNullOrWhiteSpace(result.UniqueId) || string.IsNullOrWhiteSpace(result.Account?.HomeAccountId?.Identifier)
-            || (!consumer && !Guid.TryParse(result.UniqueId, out _))
-            || (!string.IsNullOrEmpty(options.MailboxObjectId)
-                && (consumer || !string.Equals(result.UniqueId, options.MailboxObjectId, comparison))))
-        {
-            throw new InvalidOperationException("Unexpected tenant or account. No Graph request is permitted.");
-        }
-        if (expected is not null && (!string.Equals(result.TenantId, expected.TenantId, StringComparison.OrdinalIgnoreCase)
-            || !string.Equals(options.ClientId, expected.ClientId, StringComparison.OrdinalIgnoreCase)
-            || !string.Equals(result.UniqueId, expected.MailboxObjectId, comparison)
-            || result.Account.HomeAccountId.Identifier != expected.HomeAccountId))
-        {
-            throw new InvalidOperationException("The cached account changed. Sign in again.");
-        }
     }
 
     private static void VerifyWindowsProtection(string directory)
