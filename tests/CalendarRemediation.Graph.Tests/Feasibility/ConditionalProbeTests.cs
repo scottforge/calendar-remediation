@@ -65,6 +65,66 @@ public sealed class ConditionalProbeTests
     }
 
     [Theory]
+    [InlineData("Z")]
+    [InlineData("+00:00")]
+    [InlineData(".1234567Z")]
+    [InlineData(".1234567+00:00")]
+    public async Task Stale412PreservesCompetitorWithAcceptedUtcDateTimeSuffix(string suffix)
+    {
+        var scenario = new Scenario();
+        using var handler = new ScriptedGraphHandler();
+        var competitorNode = JsonNode.Parse(scenario.Event(version: "v2").GetRawText())!.AsObject();
+        foreach (var field in new[] { "start", "end" })
+        {
+            var dateTime = competitorNode[field]!["dateTime"]!.GetValue<string>();
+            var baseTime = dateTime[..19];
+            competitorNode[field]!["dateTime"] = baseTime + suffix;
+        }
+        var competitor = JsonSerializer.SerializeToElement(competitorNode);
+        handler.Add(competitor);
+        handler.Add(new { error = "precondition failed" }, 412);
+        handler.Add(competitor);
+        using var client = new HttpClient(handler);
+        var result = await new ConditionalWriteProbe(new(client, _ => Task.FromResult("fake")))
+            .AttemptAsync(scenario.Prepared, scenario.ProposedStart, scenario.ProposedStart.AddHours(1), _ => Task.CompletedTask);
+        Assert.True(result.StaleRejected);
+        Assert.True(result.CompetitorPreserved);
+        Assert.Equal(FullAttempt, handler.Methods);
+    }
+
+    [Fact]
+    public async Task Stale412DoesNotPreserveEquivalentInstantWithDifferentRawSuffix()
+    {
+        var scenario = new Scenario();
+        using var handler = new ScriptedGraphHandler();
+        var original = scenario.Event(version: "v2");
+        var changedNode = JsonNode.Parse(original.GetRawText())!.AsObject();
+        foreach (var field in new[] { "start", "end" })
+        {
+            var dateTime = changedNode[field]!["dateTime"]!.GetValue<string>();
+            changedNode[field]!["dateTime"] = dateTime + "Z";
+        }
+        handler.Add(original);
+        handler.Add(new { error = "precondition failed" }, 412);
+        handler.Add(JsonSerializer.SerializeToElement(changedNode));
+        using var client = new HttpClient(handler);
+        var result = await new ConditionalWriteProbe(new(client, _ => Task.FromResult("fake")))
+            .AttemptAsync(scenario.Prepared, scenario.ProposedStart, scenario.ProposedStart.AddHours(1), _ => Task.CompletedTask);
+        Assert.True(result.StaleRejected);
+        Assert.False(result.CompetitorPreserved);
+    }
+
+    [Fact]
+    public void ReadProbeValidationRejectsOffsetSuffixForNonUtcZone()
+    {
+        var scenario = new Scenario();
+        var item = JsonNode.Parse(scenario.Event().GetRawText())!.AsObject();
+        item["start"]!["timeZone"] = "Eastern Standard Time";
+        item["start"]!["dateTime"] = "2030-01-01T12:00:00+00:00";
+        Assert.False(ReadProbeValidation.IsValid(JsonSerializer.SerializeToElement(item)));
+    }
+
+    [Theory]
     [InlineData(200)]
     [InlineData(429)]
     [InlineData(500)]
@@ -113,6 +173,52 @@ public sealed class ConditionalProbeTests
         Assert.StartsWith("FAILED", result.Outcome, StringComparison.Ordinal);
         Assert.False(result.CompetitorPreserved);
         Assert.Single(handler.Methods, m => m == "PATCH");
+    }
+
+    [Fact]
+    public async Task AcceptedStalePatchWithReadbackIOExceptionIsStillFailureAndNeverReplayed()
+    {
+        var scenario = new Scenario();
+        using var handler = new ScriptedGraphHandler();
+        handler.Add(scenario.Event(version: "v2"));
+        handler.Add(new { }, 200);
+        handler.AddFailure(new IOException("readback stream failed"));
+        using var client = new HttpClient(handler);
+        var result = await new ConditionalWriteProbe(new(client, _ => Task.FromResult("fake")))
+            .AttemptAsync(scenario.Prepared, scenario.ProposedStart, scenario.ProposedStart.AddHours(1), _ => Task.CompletedTask);
+        Assert.True(result.StaleAccepted);
+        Assert.StartsWith("FAILED", result.Outcome, StringComparison.Ordinal);
+        Assert.False(result.CompetitorPreserved);
+        Assert.Single(handler.Methods, m => m == "PATCH");
+        Assert.Equal(3, handler.Methods.Count);
+    }
+
+    [Theory]
+    [InlineData(200, false)]
+    [InlineData(200, true)]
+    [InlineData(412, false)]
+    [InlineData(429, true)]
+    public async Task UnexpectedReadbackFaultPreservesPatchStatusAndNeverReplays(int status, bool missingKey)
+    {
+        var scenario = new Scenario();
+        using var handler = new ScriptedGraphHandler();
+        handler.Add(scenario.Event(version: "v2"));
+        handler.Add(new { }, status);
+        handler.AddFailure(missingKey ? new KeyNotFoundException("unexpected readback fault")
+            : new InvalidOperationException("unexpected readback fault"));
+        using var client = new HttpClient(handler);
+
+        var result = await new ConditionalWriteProbe(new(client, _ => Task.FromResult("fake")))
+            .AttemptAsync(scenario.Prepared, scenario.ProposedStart, scenario.ProposedStart.AddHours(1), _ => Task.CompletedTask);
+
+        Assert.Equal(status == 200, result.StaleAccepted);
+        Assert.False(result.StaleRejected);
+        Assert.False(result.CompetitorPreserved);
+        Assert.Null(result.After);
+        Assert.NotNull(result.Before);
+        Assert.Equal(status, Assert.Single(result.Exchanges, exchange => exchange.Method == "PATCH").Status);
+        Assert.StartsWith(status == 200 ? "FAILED" : "UNKNOWN", result.Outcome, StringComparison.Ordinal);
+        Assert.Equal(FullAttempt, handler.Methods);
     }
 
     [Fact]
