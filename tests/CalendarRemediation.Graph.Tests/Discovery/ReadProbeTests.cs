@@ -111,6 +111,22 @@ public sealed class ReadProbeTests
     }
 
     [Fact]
+    public async Task IOExceptionAfterFoundationReturnsIncompleteStructuredPartialResult()
+    {
+        using var handler = new ScriptedGraphHandler();
+        handler.AddReadFoundation(Mailbox);
+        handler.AddFailure(new IOException("calendar view stream failed"));
+        using var client = new HttpClient(handler);
+        var result = await new CalendarReadProbe(new(client, _ => Task.FromResult("fake"))).RunAsync(Scope);
+        Assert.False(result.Complete);
+        Assert.NotEmpty(result.Holds);
+        Assert.Equal("calendar", result.CalendarId);
+        Assert.Equal(2, result.SupportedZones.Length);
+        Assert.Equal(4, result.Exchanges.Length);
+        Assert.Equal(5, handler.Methods.Count);
+    }
+
+    [Fact]
     public async Task InvalidBoundsSendNothing()
     {
         using var handler = new ScriptedGraphHandler();
@@ -283,6 +299,51 @@ public sealed class ReadProbeTests
         Assert.True(result.Complete);
         Assert.Single(result.Events);
         Assert.Equal(0, result.OrganizerMeetings);
+    }
+
+    [Theory]
+    [InlineData("[]")]
+    [InlineData("{}")]
+    [InlineData("{\"value\":null}")]
+    public async Task MalformedLaterPageRetainsCompletedMeetingEvidence(string json)
+    {
+        using var handler = new ScriptedGraphHandler();
+        handler.AddReadFoundation(Mailbox);
+        var item = ScriptedGraphHandler.Event(attendees: true);
+        var next = GraphTransport.Root + "me/calendarView?$skiptoken=malformed";
+        handler.Add(new Dictionary<string, object> { ["value"] = new[] { item }, ["@odata.nextLink"] = next });
+        handler.Add(item);
+        handler.Add(JsonSerializer.Deserialize<JsonElement>(json));
+        using var client = new HttpClient(handler);
+
+        var result = await new CalendarReadProbe(new(client, _ => Task.FromResult("fake"))).RunAsync(Scope);
+
+        Assert.False(result.Complete);
+        Assert.Equal(json == "[]" ? "Malformed Graph read response. Scope is incomplete." : "Malformed calendar-view response.",
+            Assert.Single(result.Holds));
+        Assert.Single(result.Events);
+        Assert.Equal(1, result.OrganizerMeetings);
+        Assert.Equal(1, result.DetailReads);
+        Assert.Equal(json == "[]" ? 1 : 2, result.Pages);
+        Assert.Equal(7, result.Exchanges.Length);
+        Assert.Equal(next, handler.Addresses[^1]);
+    }
+
+    [Fact]
+    public async Task CallerCancellationDuringDetailReadPropagatesAndStopsSubsequentWork()
+    {
+        using var cancellation = new CancellationTokenSource();
+        using var handler = new ScriptedGraphHandler();
+        handler.AddReadFoundation(Mailbox);
+        handler.Add(new { value = new[] { ScriptedGraphHandler.Event(), ScriptedGraphHandler.Event("second") } });
+        handler.Add(ScriptedGraphHandler.Event(), inspect: _ => cancellation.Cancel());
+        using var client = new HttpClient(handler);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            new CalendarReadProbe(new(client, _ => Task.FromResult("fake"))).RunAsync(Scope, cancellation.Token));
+
+        Assert.Equal(6, handler.Methods.Count);
+        Assert.Equal(GraphApi.ProbeEventDetail("event"), handler.Addresses[^1]);
     }
 
     private static JsonElement WithField(JsonElement item, string field, string? json)
