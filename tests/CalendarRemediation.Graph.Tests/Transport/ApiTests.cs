@@ -83,7 +83,7 @@ public sealed class ApiTests
     public void UntrustedDestinationsAreRejectedByBothValidators(string address)
     {
         Assert.Throws<InvalidOperationException>(() => GraphApi.ValidateUri(address));
-        Assert.Throws<InvalidOperationException>(() => GraphApi.IsCalendarViewUri(address));
+        Assert.False(GraphApi.IsCalendarViewUri(address));
     }
 
     [Theory]
@@ -92,7 +92,7 @@ public sealed class ApiTests
     public void MalformedDestinationsAreRejected(string address)
     {
         Assert.Throws<UriFormatException>(() => GraphApi.ValidateUri(address));
-        Assert.Throws<UriFormatException>(() => GraphApi.IsCalendarViewUri(address));
+        Assert.False(GraphApi.IsCalendarViewUri(address));
     }
 
     [Theory]

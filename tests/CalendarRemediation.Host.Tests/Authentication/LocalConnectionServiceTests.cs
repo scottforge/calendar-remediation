@@ -243,7 +243,7 @@ public sealed class LocalConnectionServiceTests
         var pending = h.Service.StartBrowserSignIn(Principal(bootstrap), bootstrap.Version, ReturnUri);
         await entered.Task.WaitAsync(TimeSpan.FromSeconds(10));
         using var cancellationRegistration = registration;
-        h.Service.Cancel(Principal(pending), pending.Version);
+        h.Service.Cancel(Principal(pending), pending.Version, (await h.Service.GetStateAsync(Principal(pending))).OperationRevision);
         if (!inlineCompletion) { cancelled.TrySetCanceled(); }
         Assert.True(cancelled.Task.IsCanceled);
         var state = await h.Service.GetStateAsync(Principal(pending));
@@ -384,7 +384,7 @@ public sealed class LocalConnectionServiceTests
         h.Service.ConfirmLocation(principal, ticket.Version, Location);
         h.Service.StartDiscovery(principal, ticket.Version);
         await gate.WaitForEntryAsync();
-        h.Service.Cancel(principal, ticket.Version);
+        h.Service.Cancel(principal, ticket.Version, (await h.Service.GetStateAsync(principal)).OperationRevision);
         await gate.WaitForCancellationAsync();
         var state = await h.Service.GetStateAsync(principal);
         Assert.Equal(ConnectionPhase.Connected, state.Phase);
@@ -397,6 +397,33 @@ public sealed class LocalConnectionServiceTests
         var recovered = await h.WaitForPhaseAsync(principal, ConnectionPhase.Connected);
         Assert.NotNull(recovered.Discovery);
         Assert.Null(recovered.Problem);
+    }
+
+    [Fact]
+    public async Task CancelFromCompletedDiscoveryCannotCancelNextDiscovery()
+    {
+        await using var h = new ConnectionHarness();
+        var ticket = await h.ConnectAsync();
+        var principal = Principal(ticket);
+        h.Service.ConfirmLocation(principal, ticket.Version, Location);
+        h.Service.StartDiscovery(principal, ticket.Version);
+        var completed = await h.WaitForPhaseAsync(principal, ConnectionPhase.Connected);
+        var gate = new Gate<DiscoveryResult>();
+        h.Calendar.Discover = (_, ct) => gate.RunAsync(ct);
+        h.Service.StartDiscovery(principal, ticket.Version);
+        await gate.WaitForEntryAsync();
+        var current = await h.Service.GetStateAsync(principal);
+        Assert.Equal(completed.Version, current.Version);
+        Assert.NotEqual(completed.OperationRevision, current.OperationRevision);
+
+        AssertProblem("stale-session", () => h.Service.Cancel(principal, completed.Version, completed.OperationRevision));
+
+        Assert.False(gate.Cancelled.Task.IsCompleted);
+        Assert.Equal(current, await h.Service.GetStateAsync(principal));
+        gate.Result.SetResult(new(h.Calendar.Scope!, true, [], [], [], 1, 0));
+        var result = await h.WaitForPhaseAsync(principal, ConnectionPhase.Connected);
+        Assert.NotNull(result.Discovery);
+        Assert.Null(result.Problem);
     }
 
     [Fact]

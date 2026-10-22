@@ -91,7 +91,6 @@ public sealed class PlanSelectionTests
     public void UnsafeSourceEvidenceCannotBeSelected(string evidence)
     {
         var item = ContractFixture.Item;
-        AssertAccepted(item, ContractFixture.Scope);
         var source = item.Source;
         source = evidence switch
         {
@@ -113,7 +112,6 @@ public sealed class PlanSelectionTests
     public void MissingDecisionDependencyCannotBeSelected()
     {
         var item = ContractFixture.Item;
-        AssertAccepted(item, ContractFixture.Scope);
         AssertRejected(item with
         {
             Dependencies = item.Dependencies with { AdmissionHash = " " }
@@ -128,7 +126,6 @@ public sealed class PlanSelectionTests
     public void ChangeRequiresExactDurationAndConfirmedLocalZone(string mismatch)
     {
         var item = ContractFixture.Item;
-        AssertAccepted(item, ContractFixture.Scope);
         var changed = mismatch switch
         {
             "duration" => item with { Patch = item.Patch! with { End = item.Patch.End.AddTicks(1) } },

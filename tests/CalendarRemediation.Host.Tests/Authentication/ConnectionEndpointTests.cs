@@ -3,7 +3,10 @@ using System.Net.Http.Json;
 using System.Security.Claims;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
+using CalendarRemediation.Core.Discovery;
 using CalendarRemediation.Host.Authentication;
+using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Builder;
@@ -55,7 +58,7 @@ public sealed class ConnectionEndpointTests
         using (var complete = await host.PostAsync("complete", ("version", ready.Version)))
         {
             AssertRedirect(complete);
-            var cookie = Assert.Single(complete.Headers.GetValues("Set-Cookie"), value => value.StartsWith("CalendarRemediation.Connection=", StringComparison.Ordinal));
+            var cookie = Assert.Single(complete.Headers.GetValues("Set-Cookie"), value => value.StartsWith(host.CookieName + "=", StringComparison.Ordinal));
             Assert.Contains("httponly", cookie, StringComparison.OrdinalIgnoreCase);
             Assert.Contains("samesite=strict", cookie, StringComparison.OrdinalIgnoreCase);
             Assert.DoesNotContain("expires=", cookie, StringComparison.OrdinalIgnoreCase);
@@ -131,8 +134,9 @@ public sealed class ConnectionEndpointTests
     {
         await using var host = await LoopbackHost.StartAsync();
         using var request = new HttpRequestMessage(HttpMethod.Get, "/connection/state");
-        request.Headers.Host = requestHost;
-        request.Headers.Add("Origin", origin);
+        var port = host.Client.BaseAddress!.Port.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        request.Headers.Host = requestHost.Replace(":5009", ":" + port, StringComparison.Ordinal);
+        request.Headers.Add("Origin", origin.Replace(":5009", ":" + port, StringComparison.Ordinal));
         if (fetchSite is not null) { request.Headers.Add("Sec-Fetch-Site", fetchSite); }
         using var response = await host.Client.SendAsync(request);
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
@@ -149,7 +153,7 @@ public sealed class ConnectionEndpointTests
         {
             await AssertProblemAsync(missingOrigin, HttpStatusCode.Forbidden, "invalid-origin");
         }
-        host.Client.DefaultRequestHeaders.Referrer = new Uri("http://localhost:5009/connect");
+        host.Client.DefaultRequestHeaders.Referrer = new Uri(host.Client.BaseAddress!, "/connect");
         using (var referer = await host.PostWithTokenAsync("bootstrap", token)) { AssertRedirect(referer); }
     }
 
@@ -164,7 +168,7 @@ public sealed class ConnectionEndpointTests
         using (var failure = await host.PostAsync("signout", ("version", state.Version)))
         {
             await AssertProblemAsync(failure, HttpStatusCode.ServiceUnavailable, "account-cache-unavailable");
-            Assert.Contains(failure.Headers.GetValues("Set-Cookie"), value => value.StartsWith("CalendarRemediation.Connection=;", StringComparison.Ordinal));
+            Assert.Contains(failure.Headers.GetValues("Set-Cookie"), value => value.StartsWith(host.CookieName + "=;", StringComparison.Ordinal));
         }
         using var stale = host.CreateClient(copiedCookie);
         var staleState = await stale.GetFromJsonAsync<ConnectionState>("/connection/state", LoopbackHost.Json);
@@ -172,6 +176,149 @@ public sealed class ConnectionEndpointTests
         host.Harness.Identity.Clear = () => Task.CompletedTask;
         using (var retry = await host.PostAsync("bootstrap")) { AssertRedirect(retry); }
         Assert.NotEqual(state.Version, (await host.StateAsync()).Version);
+    }
+
+    [Fact]
+    public async Task TwoListenerPortsKeepPreviouslyIssuedFormsAndCookiesIndependent()
+    {
+        var keys = Directory.CreateTempSubdirectory("calendar-connection-keys-");
+        try
+        {
+            var cookies = new CookieContainer();
+            await using var first = await LoopbackHost.StartAsync(cookies, keys.CreateSubdirectory("first"));
+            await using var second = await LoopbackHost.StartAsync(cookies, keys.CreateSubdirectory("second"));
+            Assert.NotEqual(first.Client.BaseAddress!.Port, second.Client.BaseAddress!.Port);
+            Assert.Equal("CalendarRemediation.Connection." + first.Client.BaseAddress.Port, first.CookieName);
+            Assert.Equal("CalendarRemediation.Connection." + second.Client.BaseAddress.Port, second.CookieName);
+            Assert.Equal("CalendarRemediation.Antiforgery." + first.Client.BaseAddress.Port, first.AntiforgeryCookieName);
+            Assert.Equal("CalendarRemediation.Antiforgery." + second.Client.BaseAddress.Port, second.AntiforgeryCookieName);
+            var firstState = await first.ConnectAsync();
+            var firstToken = await first.TokenAsync();
+            var firstAntiforgeryCookie = cookies.GetCookies(first.Client.BaseAddress)[first.AntiforgeryCookieName]!.Value;
+            var secondState = await second.ConnectAsync();
+            var secondToken = await second.TokenAsync();
+
+            Assert.Equal(firstState.Version, (await first.StateAsync()).Version);
+            Assert.Equal(secondState.Version, (await second.StateAsync()).Version);
+            Assert.Equal("true", first.ReadCookie().Principal.FindFirstValue("connection_verified"));
+            Assert.Equal("true", second.ReadCookie().Principal.FindFirstValue("connection_verified"));
+            Assert.NotNull(cookies.GetCookies(first.Client.BaseAddress)[first.CookieName]);
+            Assert.NotNull(cookies.GetCookies(second.Client.BaseAddress)[second.CookieName]);
+            Assert.Equal(firstAntiforgeryCookie, cookies.GetCookies(first.Client.BaseAddress)[first.AntiforgeryCookieName]!.Value);
+            Assert.NotNull(cookies.GetCookies(second.Client.BaseAddress)[second.AntiforgeryCookieName]);
+            Assert.NotEmpty(Directory.GetFiles(Path.Combine(keys.FullName, "first"), "key-*.xml"));
+            Assert.NotEmpty(Directory.GetFiles(Path.Combine(keys.FullName, "second"), "key-*.xml"));
+
+            using (var wrongToken = await first.PostWithTokenAsync("signout", secondToken, ("version", firstState.Version)))
+            {
+                await AssertProblemAsync(wrongToken, HttpStatusCode.BadRequest, "invalid-form");
+            }
+            // Submit the original A form after visiting B, without fetching a replacement A token.
+            using (var signout = await first.PostWithTokenAsync("signout", firstToken, ("version", firstState.Version))) { AssertRedirect(signout); }
+
+            Assert.Equal("", (await first.StateAsync()).Version);
+            Assert.Null(cookies.GetCookies(first.Client.BaseAddress)[first.CookieName]);
+            var remaining = await second.StateAsync();
+            Assert.Equal(ConnectionPhase.Connected, remaining.Phase);
+            Assert.Equal(secondState.Version, remaining.Version);
+            Assert.Equal(Mailbox, remaining.Mailbox);
+            Assert.NotNull(cookies.GetCookies(second.Client.BaseAddress)[second.CookieName]);
+            Assert.NotNull(cookies.GetCookies(second.Client.BaseAddress)[second.AntiforgeryCookieName]);
+            Assert.Equal(1, first.Harness.Identity.Clears);
+            Assert.Equal(0, second.Harness.Identity.Clears);
+        }
+        finally { keys.Delete(recursive: true); }
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task OldCancelFormCannotCancelReplacementDiscovery(bool replaceLocation, bool cancelReplacement)
+    {
+        await using var host = await LoopbackHost.StartAsync();
+        var connected = await host.ConnectAsync();
+        var principal = host.ReadCookie().Principal;
+        using (var location = await host.PostAsync("location", ("version", connected.Version), ("province", "BC"),
+            ("community", "Vancouver"), ("timeZoneId", "America/Vancouver"))) { AssertRedirect(location); }
+        var first = new Gate<DiscoveryResult>();
+        host.Harness.Calendar.Discover = (_, ct) => first.RunAsync(ct);
+        using (var discover = await host.PostAsync("discover", ("version", connected.Version))) { AssertRedirect(discover); }
+        await first.WaitForEntryAsync();
+        var oldForm = await CancelFormAsync(host, principal);
+        if (replaceLocation)
+        {
+            using var location = await host.PostAsync("location", ("version", connected.Version), ("province", "AB"),
+                ("community", "Calgary"), ("timeZoneId", "America/Edmonton"));
+            AssertRedirect(location);
+        }
+        else
+        {
+            using var cancel = await host.PostAsync("cancel", oldForm);
+            AssertRedirect(cancel);
+        }
+        await first.WaitForCancellationAsync();
+        var replacement = new Gate<DiscoveryResult>();
+        host.Harness.Calendar.Discover = (_, ct) => replacement.RunAsync(ct);
+        using (var discover = await host.PostAsync("discover", ("version", connected.Version))) { AssertRedirect(discover); }
+        await replacement.WaitForEntryAsync();
+        var current = await host.StateAsync();
+        Assert.Equal(connected.Version, current.Version);
+        var currentForm = await CancelFormAsync(host, principal);
+        Assert.NotEqual(oldForm[1].Value, currentForm[1].Value);
+
+        using (var stale = await host.PostAsync("cancel", oldForm))
+        {
+            await AssertProblemAsync(stale, HttpStatusCode.Conflict, "stale-session");
+        }
+        foreach (var revision in new[] { "", "-1", "not-a-revision", "2147483648" })
+        {
+            using var invalid = await host.PostAsync("cancel", ("version", current.Version), ("operationRevision", revision));
+            await AssertProblemAsync(invalid, HttpStatusCode.Conflict, "stale-session");
+        }
+        using (var missing = await host.PostAsync("cancel", ("version", current.Version)))
+        {
+            await AssertProblemAsync(missing, HttpStatusCode.Conflict, "stale-session");
+        }
+        Assert.False(replacement.Cancelled.Task.IsCompleted);
+        var after = await host.StateAsync();
+        Assert.Equal(ConnectionPhase.Discovering, after.Phase);
+        Assert.Equal(current.OperationRevision, after.OperationRevision);
+        Assert.Null(after.Problem);
+        Assert.Equal(current.Location, after.Location);
+        if (cancelReplacement)
+        {
+            using var cancel = await host.PostAsync("cancel", currentForm);
+            AssertRedirect(cancel);
+            await replacement.WaitForCancellationAsync();
+            var cancelled = await host.StateAsync();
+            Assert.Equal(ConnectionPhase.Connected, cancelled.Phase);
+            Assert.Equal("cancelled", cancelled.Problem?.Code);
+            Assert.Null(cancelled.Discovery);
+        }
+        else
+        {
+            replacement.Result.SetResult(new(host.Harness.Calendar.Scope!, true, [], [], [], 1, 0));
+            var complete = await host.Harness.WaitForPhaseAsync(principal, ConnectionPhase.Connected);
+            Assert.True(complete.Discovery?.Complete);
+            Assert.Null(complete.Problem);
+        }
+    }
+
+    private static async Task<(string Key, string Value)[]> CancelFormAsync(LoopbackHost host, ClaimsPrincipal principal)
+    {
+        var html = await ConnectPageTests.RenderAsync(host.Harness, principal);
+        var form = ConnectPageTests.AssertPostForm(html, "/connection/cancel");
+        return [("version", Value("version")), ("operationRevision", Value("operationRevision"))];
+
+        string Value(string name)
+        {
+            var input = Assert.Single(Regex.Matches(form, "<input\\b[^>]*>").Cast<Match>(),
+                match => match.Value.Contains($"name=\"{name}\"", StringComparison.Ordinal)).Value;
+            Assert.Contains("type=\"hidden\"", input);
+            return WebUtility.HtmlDecode(Regex.Match(input, "value=\"([^\"]*)\"").Groups[1].Value);
+        }
     }
 
     private static void AssertRedirect(HttpResponseMessage response)
@@ -194,27 +341,32 @@ public sealed class ConnectionEndpointTests
             Converters = { new JsonStringEnumConverter() }
         };
         private readonly WebApplication _app;
-        private readonly CookieContainer _cookies = new();
+        private readonly CookieContainer _cookies;
         public ConnectionHarness Harness { get; }
         public HttpClient Client { get; private set; } = null!;
         public string Cookie => _cookies.GetCookieHeader(Client.BaseAddress!);
+        public string CookieName => _app.Services.GetRequiredService<IOptionsMonitor<CookieAuthenticationOptions>>()
+            .Get(ConnectionEndpoints.Scheme).Cookie.Name!;
+        public string AntiforgeryCookieName => _app.Services.GetRequiredService<IOptions<AntiforgeryOptions>>().Value.Cookie.Name!;
 
-        private LoopbackHost(WebApplication app, ConnectionHarness harness)
+        private LoopbackHost(WebApplication app, ConnectionHarness harness, CookieContainer cookies)
         {
             _app = app;
             Harness = harness;
+            _cookies = cookies;
         }
 
-        public static async Task<LoopbackHost> StartAsync()
+        public static async Task<LoopbackHost> StartAsync(CookieContainer? cookies = null, DirectoryInfo? keyDirectory = null)
         {
             var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = "Development" });
             builder.Logging.ClearProviders();
-            // The actual socket is independently allocated. The production guard validates
-            // the explicit UI authority, so the tests never bind or touch port 5009.
+            // Allocate independent sockets, then use their actual ports for the guard and cookies.
             builder.WebHost.ConfigureKestrel(options => options.Listen(IPAddress.Loopback, 0));
             builder.Services.AddLocalConnection(builder.Configuration);
             builder.Services.AddAntiforgery();
-            builder.Services.AddDataProtection().UseEphemeralDataProtectionProvider();
+            var protection = builder.Services.AddDataProtection();
+            if (keyDirectory is null) { protection.UseEphemeralDataProtectionProvider(); }
+            else { protection.PersistKeysToFileSystem(keyDirectory); }
             var harness = new ConnectionHarness();
             builder.Services.AddSingleton<ILocalIdentityClient>(harness.Identity);
             builder.Services.AddSingleton<ILocalCalendarClient>(harness.Calendar);
@@ -224,12 +376,13 @@ public sealed class ConnectionEndpointTests
             app.UseAuthentication();
             app.UseAuthorization();
             app.MapLocalConnection();
-            var host = new LoopbackHost(app, harness);
+            var host = new LoopbackHost(app, harness, cookies ?? new());
             try
             {
                 await app.StartAsync();
                 var server = app.Services.GetRequiredService<IServer>();
                 var address = Assert.Single(server.Features.Get<IServerAddressesFeature>()!.Addresses);
+                app.Services.GetRequiredService<IOptions<LocalConnectionOptions>>().Value.Port = new Uri(address).Port;
                 host.Client = new(new HttpClientHandler { AllowAutoRedirect = false, CookieContainer = host._cookies })
                 {
                     BaseAddress = new Uri(address),
@@ -255,14 +408,13 @@ public sealed class ConnectionEndpointTests
 
         private static void SetHeaders(HttpClient client)
         {
-            client.DefaultRequestHeaders.Host = "localhost:5009";
-            client.DefaultRequestHeaders.Add("Origin", "http://localhost:5009");
+            client.DefaultRequestHeaders.Add("Origin", client.BaseAddress!.GetLeftPart(UriPartial.Authority));
         }
 
         public AuthenticationTicket ReadCookie()
         {
             var options = _app.Services.GetRequiredService<IOptionsMonitor<CookieAuthenticationOptions>>().Get(ConnectionEndpoints.Scheme);
-            var value = _cookies.GetCookies(Client.BaseAddress!)["CalendarRemediation.Connection"]!.Value;
+            var value = _cookies.GetCookies(Client.BaseAddress!)[CookieName]!.Value;
             return Assert.IsType<AuthenticationTicket>(options.TicketDataFormat.Unprotect(value));
         }
 
@@ -272,6 +424,20 @@ public sealed class ConnectionEndpointTests
             response.EnsureSuccessStatusCode();
             Assert.True(response.Headers.CacheControl?.NoStore);
             return (await response.Content.ReadFromJsonAsync<ConnectionState>(Json))!;
+        }
+
+        public async Task<ConnectionState> ConnectAsync()
+        {
+            using (var signin = await PostAsync("signin"))
+            {
+                Assert.Equal(HttpStatusCode.Found, signin.StatusCode);
+                Assert.Equal(AuthorizationUri, signin.Headers.Location);
+            }
+            var ready = await Harness.WaitForPhaseAsync(ReadCookie().Principal, ConnectionPhase.AwaitingCompletion);
+            using (var complete = await PostAsync("complete", ("version", ready.Version))) { AssertRedirect(complete); }
+            var state = await StateAsync();
+            Assert.Equal(ConnectionPhase.Connected, state.Phase);
+            return state;
         }
 
         public async Task<AntiforgeryForm> TokenAsync() => (await Client.GetFromJsonAsync<AntiforgeryForm>("/connection/antiforgery"))!;

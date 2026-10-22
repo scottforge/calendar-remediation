@@ -22,8 +22,10 @@ public sealed class ReadProbeDecisionTests
         Assert.Equal(2, state.Observations);
         Assert.Equal(1, state.DetailReads);
         Assert.Empty(state.Events);
+        Assert.Null(state.Hold);
 
-        Assert.Throws<InvalidDataException>(() => state.AdmitObservation(item));
+        Assert.False(state.AdmitObservation(item));
+        Assert.StartsWith("Observation budget exhausted", state.Hold, StringComparison.Ordinal);
         Assert.Equal(3, state.Observations);
         Assert.Equal(1, state.DetailReads);
     }
@@ -34,13 +36,15 @@ public sealed class ReadProbeDecisionTests
         var state = new ReadProbeState(Scope with { MaxEvents = 1 });
         var malformed = WithField(ScriptedGraphHandler.Event(), "attendees", "null");
 
-        Assert.Throws<InvalidDataException>(() => state.AdmitObservation(malformed));
+        Assert.False(state.AdmitObservation(malformed));
+        Assert.Equal("Missing or malformed required discovery/classification fields in calendar-view observation.", state.Hold);
         Assert.Equal(1, state.Observations);
         Assert.Equal(0, state.DetailReads);
         Assert.Empty(state.Events);
         Assert.Equal(0, state.OrganizerMeetings);
 
-        Assert.Throws<InvalidDataException>(() => state.AdmitObservation(ScriptedGraphHandler.Event()));
+        Assert.False(state.AdmitObservation(ScriptedGraphHandler.Event()));
+        Assert.StartsWith("Observation budget exhausted", state.Hold, StringComparison.Ordinal);
         Assert.Equal(2, state.Observations);
         Assert.Equal(0, state.DetailReads);
     }
@@ -52,8 +56,10 @@ public sealed class ReadProbeDecisionTests
         var item = ScriptedGraphHandler.Event();
         Assert.True(state.AdmitObservation(item));
         Assert.False(state.AdmitObservation(item));
+        Assert.Null(state.Hold);
 
-        Assert.Throws<InvalidDataException>(() => state.AdmitObservation(ScriptedGraphHandler.Event("second")));
+        Assert.False(state.AdmitObservation(ScriptedGraphHandler.Event("second")));
+        Assert.Equal("Detail-read budget exhausted.", state.Hold);
 
         Assert.Equal(3, state.Observations);
         Assert.Equal(1, state.DetailReads);
@@ -70,7 +76,8 @@ public sealed class ReadProbeDecisionTests
         var changed = WithField(item, "originalStartTimeZone", "\"Europe/Paris\"");
         Assert.True(ReadProbeValidation.IsValid(changed));
 
-        Assert.Throws<InvalidDataException>(() => state.AdmitObservation(changed));
+        Assert.False(state.AdmitObservation(changed));
+        Assert.Equal("Repeated identity has differing version or evidence.", state.Hold);
 
         Assert.Equal(2, state.Observations);
         Assert.Equal(1, state.DetailReads);
@@ -90,8 +97,12 @@ public sealed class ReadProbeDecisionTests
         var pending = ScriptedGraphHandler.Event("pending", attendees: true);
         Assert.True(state.AdmitObservation(pending));
 
-        Assert.Throws<InvalidDataException>(() => state.RecordDetail(pending, WithField(pending, field, json)));
+        state.RecordDetail(pending, WithField(pending, field, json));
+        Assert.Equal(field == "attendees"
+            ? "Missing or malformed required discovery/classification fields in event detail."
+            : "Identity, version or relevant evidence changed between view and detail.", state.Hold);
 
+        Assert.Equal(2, state.Observations);
         Assert.Equal(2, state.DetailReads);
         Assert.Equal("completed", Assert.Single(state.Events).GetProperty("id").GetString());
         Assert.Equal(1, state.OrganizerMeetings);

@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Text.Json.Nodes;
 using CalendarRemediation.Graph;
 using CalendarRemediation.Graph.Discovery;
@@ -106,9 +107,65 @@ public sealed class TraversalTests
     }
 
     [Theory]
+    [InlineData("provider-status")]
+    [InlineData("malformed-page")]
+    [InlineData("non-object-page")]
+    [InlineData("wrong-value-type")]
+    public async Task LaterPageFailureRetainsEarlierEvidenceWithReadUnavailableHold(string failure)
+    {
+        const string next = GraphTransport.Root + "me/calendarView?$skiptoken=provider-failure";
+        using var handler = new ScriptedGraphHandler();
+        handler.AddReadFoundation(ContractFixture.Identity.MailboxId);
+        handler.Add(new Dictionary<string, object>
+        {
+            ["value"] = new[] { GraphReadContractTests.Event() },
+            ["@odata.nextLink"] = next
+        });
+        handler.Add(GraphReadContractTests.Event());
+        if (failure == "provider-status")
+        {
+            handler.Add(new { error = "private-provider-content" }, 503);
+        }
+        else
+        {
+            handler.Add(JsonSerializer.Deserialize<JsonElement>(failure switch
+            {
+                "non-object-page" => "[]",
+                "wrong-value-type" => "{\"value\":{}}",
+                _ => "{\"unexpected\":\"private-provider-content\"}"
+            }));
+        }
+        using var client = new HttpClient(handler);
+
+        var result = await GraphReadContractTests.Reader(client).DiscoverAsync(ContractFixture.Scope);
+
+        Assert.False(result.Complete);
+        Assert.Equal("read-unavailable", Assert.Single(result.Holds));
+        Assert.Equal("event", Assert.Single(result.Events).Id);
+        Assert.Equal(failure is "provider-status" or "non-object-page" ? 1 : 2, result.Pages);
+        Assert.Equal(1, result.DetailReads);
+        Assert.Equal(next, handler.Addresses[^1]);
+    }
+
+    [Fact]
+    public async Task InitialProviderFailureReturnsIncomplete()
+    {
+        using var handler = new ScriptedGraphHandler();
+        handler.Add(new { error = "private-provider-content" }, 503);
+        using var client = new HttpClient(handler);
+
+        var result = await GraphReadContractTests.Reader(client).DiscoverAsync(ContractFixture.Scope);
+
+        Assert.False(result.Complete);
+        Assert.Equal("read-unavailable", Assert.Single(result.Holds));
+        Assert.Empty(result.Events);
+    }
+
+    [Theory]
     [InlineData("http-status")]
     [InlineData("io-exception")]
     [InlineData("http-exception")]
+    [InlineData("invalid-data-exception")]
     public async Task FailedDetailRetainsViewEvidenceAndContinuesThroughRemainingEventsAndPages(string failure)
     {
         const string next = GraphTransport.Root + "me/calendarView?$skiptoken=after-failure";
@@ -125,9 +182,12 @@ public sealed class TraversalTests
         }
         else
         {
-            handler.AddFailure(failure == "io-exception"
-                ? new IOException("private-provider-content")
-                : new HttpRequestException("private-provider-content"));
+            handler.AddFailure(failure switch
+            {
+                "io-exception" => new IOException("private-provider-content"),
+                "invalid-data-exception" => new InvalidDataException("private-provider-content"),
+                _ => new HttpRequestException("private-provider-content")
+            });
         }
         handler.Add(GraphReadContractTests.Event("event-2"));
         handler.Add(new { value = new[] { GraphReadContractTests.Event("event-3") } });
