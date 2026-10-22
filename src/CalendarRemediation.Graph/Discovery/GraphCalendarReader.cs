@@ -28,7 +28,7 @@ public sealed class GraphCalendarReader(GraphTransport transport) : ICalendarRea
             else { await ReadCalendarViewAsync(scope, state, ct).ConfigureAwait(false); }
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested) { state.AddHold("duration-budget"); }
-        catch (Exception ex) when (ex is HttpRequestException or IOException or JsonException or InvalidOperationException or UriFormatException)
+        catch (Exception ex) when (ex is HttpRequestException or IOException or InvalidDataException)
         {
             state.AddHold("read-unavailable");
         }
@@ -40,19 +40,24 @@ public sealed class GraphCalendarReader(GraphTransport transport) : ICalendarRea
         foreach (var zoneUrl in new[] { GraphApi.WindowsTimeZonesUrl, GraphApi.IanaTimeZonesUrl })
         {
             var zonePage = await GetAsync(zoneUrl, ct).ConfigureAwait(false);
-            if (!GraphJson.TryArray(zonePage, "value", out var aliases) || aliases.GetArrayLength() == 0
-                || zonePage.TryGetProperty("@odata.nextLink", out _)) { throw new InvalidDataException(); }
+            if (zonePage is not { } page || !GraphJson.TryArray(page, "value", out var aliases) || aliases.GetArrayLength() == 0
+                || page.TryGetProperty("@odata.nextLink", out _)) { state.AddHold("read-unavailable"); return; }
             // Enumerate incrementally so aliases preceding malformed data remain in partial results.
-            state.AddZones(ReadZoneAliases(aliases));
+            foreach (var zone in aliases.EnumerateArray())
+            {
+                var alias = GraphJson.Text(zone, "alias");
+                if (string.IsNullOrWhiteSpace(alias)) { state.AddHold("read-unavailable"); return; }
+                state.AddZones([alias]);
+            }
         }
 
         string? next = GraphApi.CalendarView(scope.Start, scope.End);
         var exhausted = false;
         while (next is not null && !exhausted && state.AdmitPage(next) == DiscoveryPageAction.ReadPage)
         {
-            var page = await GetAsync(next, ct).ConfigureAwait(false);
+            if (await GetAsync(next, ct).ConfigureAwait(false) is not { } page) { state.AddHold("read-unavailable"); return; }
             state.RecordPageFetched();
-            if (!GraphJson.TryArray(page, "value", out var values)) { throw new InvalidDataException(); }
+            if (!GraphJson.TryArray(page, "value", out var values)) { state.AddHold("read-unavailable"); return; }
             foreach (var observation in values.EnumerateArray())
             {
                 var decision = state.AdmitObservation(observation);
@@ -61,22 +66,12 @@ public sealed class GraphCalendarReader(GraphTransport transport) : ICalendarRea
                 var source = decision.Source!;
                 SourceSnapshot? detail;
                 try { detail = await ReadEventAsync(scope.Identity, source.Id, ct).ConfigureAwait(false); }
-                catch (Exception ex) when (ex is HttpRequestException or IOException or JsonException) { detail = null; }
+                catch (Exception ex) when (ex is HttpRequestException or IOException or InvalidDataException) { detail = null; }
                 state.RecordDetail(DiscoveryDetailDecision.Reconcile(source, detail));
             }
             var continuation = DiscoveryContinuation.Parse(page);
             if (continuation.Kind == DiscoveryContinuationKind.Invalid) { state.AddHold("invalid-next-link"); break; }
             next = continuation.Address;
-        }
-    }
-
-    private static IEnumerable<string> ReadZoneAliases(JsonElement aliases)
-    {
-        foreach (var zone in aliases.EnumerateArray())
-        {
-            var alias = GraphJson.Text(zone, "alias");
-            if (string.IsNullOrWhiteSpace(alias)) { throw new InvalidDataException(); }
-            yield return alias;
         }
     }
 
@@ -102,9 +97,9 @@ public sealed class GraphCalendarReader(GraphTransport transport) : ICalendarRea
     {
         // Token tenant validation belongs to the token-acquisition composition. Graph /me
         // independently establishes the mailbox and default-calendar ownership here.
-        var me = await GetAsync(GraphApi.IdentityUrl, ct).ConfigureAwait(false);
+        if (await GetAsync(GraphApi.IdentityUrl, ct).ConfigureAwait(false) is not { } me) { return "read-unavailable"; }
         if (GraphJson.Text(me, "id") != identity.MailboxId) { return "identity-mismatch"; }
-        var calendar = await GetAsync(GraphApi.DefaultCalendarUrl, ct).ConfigureAwait(false);
+        if (await GetAsync(GraphApi.DefaultCalendarUrl, ct).ConfigureAwait(false) is not { } calendar) { return "read-unavailable"; }
         var owner = calendar.TryGetProperty("owner", out var ownerValue) ? GraphJson.Text(ownerValue, "address") : null;
         var consumer = string.Equals(identity.TenantId, ConsumerTenantId, StringComparison.OrdinalIgnoreCase);
         var ownerBoundByConsumerMeRoute = consumer && !string.IsNullOrWhiteSpace(owner);
@@ -118,10 +113,10 @@ public sealed class GraphCalendarReader(GraphTransport transport) : ICalendarRea
         return null;
     }
 
-    private async Task<JsonElement> GetAsync(string address, CancellationToken ct)
+    private async Task<JsonElement?> GetAsync(string address, CancellationToken ct)
     {
         var response = await transport.SendAsync(HttpMethod.Get, address, cancellationToken: ct).ConfigureAwait(false);
-        if (response.Status != 200 || response.Body is not { ValueKind: JsonValueKind.Object }) { throw new InvalidDataException(); }
+        if (response.Status != 200 || response.Body is not { ValueKind: JsonValueKind.Object }) { return null; }
         return response.Body.Value;
     }
 

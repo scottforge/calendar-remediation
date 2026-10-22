@@ -59,15 +59,28 @@ public sealed class ConditionalWriteProbe(GraphTransport transport, TimeProvider
                 prepared.SourceETag, dispatchId, cancellationToken).ConfigureAwait(false);
             exchanges.Add(response.Exchange);
             status = response.Status;
-            var afterResponse = await ReadAsync(prepared.EventId, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or IOException or OperationCanceledException)
+        {
+            return ConditionalProbeOutcome.CreateResult(status, null, before, null, exchanges.ToArray());
+        }
+
+        try
+        {
+            var afterResponse = await transport.SendAsync(HttpMethod.Get, GraphApi.ConditionalProbeEventDetail(prepared.EventId),
+                cancellationToken: cancellationToken).ConfigureAwait(false);
             exchanges.Add(afterResponse.Exchange);
-            var after = afterResponse.Body!.Value;
+            if (afterResponse.Status != 200 || afterResponse.Body is not { } after || !ReadProbeValidation.IsValid(after)
+                || GraphJson.Text(after, "subject") is null)
+            {
+                return ConditionalProbeOutcome.CreateResult(status, null, before, null, exchanges.ToArray());
+            }
             var preserved = CalendarReadProbe.Equivalent(before, after)
                 && GraphJson.Text(before, "subject") == GraphJson.Text(after, "subject");
             return ConditionalProbeOutcome.CreateResult(status, preserved, before, after, exchanges.ToArray());
         }
-        catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException or InvalidDataException or JsonException
-            or KeyNotFoundException or InvalidOperationException or FormatException)
+        // After dispatch, any readback fault must preserve the PATCH status and evidence without replay.
+        catch (Exception)
         {
             return ConditionalProbeOutcome.CreateResult(status, null, before, null, exchanges.ToArray());
         }

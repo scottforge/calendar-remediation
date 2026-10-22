@@ -57,5 +57,8 @@ public static class GraphApi
     }
 
     // Validate without rebuilding opaque continuation queries.
-    public static bool IsCalendarViewUri(string address) => ValidateUri(address).AbsolutePath == CalendarViewPath;
+    public static bool IsCalendarViewUri(string address) => !string.IsNullOrEmpty(address) && address[0] is not ('/' or '\\')
+        && Uri.TryCreate(address, UriKind.Absolute, out var uri)
+        && uri.Scheme == CurrentUser.Scheme && uri.Host == CurrentUser.Host && uri.IsDefaultPort
+        && uri.UserInfo.Length == 0 && uri.Fragment.Length == 0 && uri.AbsolutePath == CalendarViewPath;
 }

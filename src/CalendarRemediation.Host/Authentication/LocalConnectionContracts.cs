@@ -20,7 +20,7 @@ public sealed record ConnectionMeeting(string Id, DateTimeOffset? Start, DateTim
     string? Organizer, EventKind Kind, int AttendeeCount);
 public sealed record ConnectionDiscovery(DateTimeOffset Start, DateTimeOffset End, bool Complete,
     int ObservedEvents, ImmutableArray<ConnectionMeeting> OrganizerMeetings, ImmutableArray<string> Holds);
-public sealed record ConnectionState(string Version, ConnectionPhase Phase, string? CachedAccount,
+public sealed record ConnectionState(string Version, int OperationRevision, ConnectionPhase Phase, string? CachedAccount,
     VerifiedMailbox? Mailbox, ConfirmedLocation? Location, string SuggestedTimeZoneId,
     ConnectionDiscovery? Discovery, ConnectionProblem? Problem, MeetingTimePreview? Preview = null);
 

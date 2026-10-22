@@ -60,7 +60,7 @@ public sealed partial class LocalConnectionService(ILocalIdentityClient identity
             ThrowIfDisposed();
             if (Find(principal) is not { } current)
             {
-                return new("", identity.Unavailable is null ? ConnectionPhase.SignedOut : ConnectionPhase.Disabled,
+                return new("", 0, identity.Unavailable is null ? ConnectionPhase.SignedOut : ConnectionPhase.Disabled,
                     null, null, null, TimeZoneInfo.Local.Id, null, identity.Unavailable);
             }
             session = current;
@@ -154,16 +154,29 @@ public sealed partial class LocalConnectionService(ILocalIdentityClient identity
                     && session.Phase is ConnectionPhase.SigningIn or ConnectionPhase.AwaitingCompletion ? uri : null;
             }
         }
-        catch (Exception ex) when (ex is TimeoutException or OperationCanceledException)
+        catch (TimeoutException ex)
         {
             lock (_sync)
             {
                 if (ReferenceEquals(_session, session) && session.Phase == ConnectionPhase.SigningIn)
                 {
-                    if (ex is TimeoutException && !cancellationToken.IsCancellationRequested)
-                    {
-                        LogFailure("browser-handoff", ex, 15000);
-                    }
+                    if (!cancellationToken.IsCancellationRequested) { LogFailure("browser-handoff", ex, 15000); }
+                    session.Revision++;
+                    session.Problem = Problem(new OperationCanceledException());
+                    session.Phase = ConnectionPhase.Failed;
+                    session.Operation?.Cancel();
+                }
+            }
+            cancellationToken.ThrowIfCancellationRequested();
+            lock (_sync) { RequireCurrent(session); }
+            return null;
+        }
+        catch (OperationCanceledException)
+        {
+            lock (_sync)
+            {
+                if (ReferenceEquals(_session, session) && session.Phase == ConnectionPhase.SigningIn)
+                {
                     session.Revision++;
                     session.Problem = Problem(new OperationCanceledException());
                     session.Phase = ConnectionPhase.Failed;
@@ -278,11 +291,12 @@ public sealed partial class LocalConnectionService(ILocalIdentityClient identity
         }
     }
 
-    public void Cancel(ClaimsPrincipal principal, string version)
+    public void Cancel(ClaimsPrincipal principal, string version, int operationRevision)
     {
         lock (_sync)
         {
             var session = Require(principal, version);
+            if (session.Revision != operationRevision) { throw Stale(); }
             session.Revision++;
             session.Discovery = null;
             session.DiscoveryResult = null;
@@ -392,6 +406,7 @@ public sealed partial class LocalConnectionService(ILocalIdentityClient identity
 
     private void Track(Session session, string operation, Func<CancellationToken, Task> action)
     {
+        session.Revision++;
         session.Operation?.Cancel();
         var source = new CancellationTokenSource(TimeSpan.FromMinutes(5));
         session.Operation = source;
@@ -469,7 +484,7 @@ public sealed partial class LocalConnectionService(ILocalIdentityClient identity
         if (_disposed || !ReferenceEquals(_session, session) || session.Expires <= DateTimeOffset.UtcNow) { throw Stale(); }
     }
 
-    private ConnectionState State(Session session) => new(session.Version,
+    private ConnectionState State(Session session) => new(session.Version, session.Revision,
         identity.Unavailable is null ? session.Phase : ConnectionPhase.Disabled, session.CachedAccount,
         session.Mailbox, session.Location, TimeZoneInfo.Local.Id, session.Discovery, identity.Unavailable ?? session.Problem, session.Preview);
 

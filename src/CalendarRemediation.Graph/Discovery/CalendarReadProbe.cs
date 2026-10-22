@@ -36,32 +36,41 @@ public sealed class CalendarReadProbe(GraphTransport transport)
         string? calendarId = null;
         var pages = 0;
 
-        async Task<JsonElement> GetAsync(string path)
+        async Task<JsonElement?> GetAsync(string path)
         {
             var response = await transport.SendAsync(HttpMethod.Get, path, cancellationToken: ct).ConfigureAwait(false);
             exchanges.Add(response.Exchange);
             if (response.Status != 200 || response.Body is null)
             {
-                throw new InvalidDataException($"Graph read rejected with HTTP {response.Status}. No retry was made.");
+                holds.Add($"Graph read rejected with HTTP {response.Status}. No retry was made.");
+                return null;
+            }
+            if (response.Body.Value.ValueKind != JsonValueKind.Object)
+            {
+                holds.Add("Malformed Graph read response. Scope is incomplete.");
+                return null;
             }
             return response.Body.Value;
         }
 
-        async Task ReadSupportedZonesAsync()
+        async Task<bool> ReadSupportedZonesAsync()
         {
             foreach (var zoneUrl in new[] { GraphApi.WindowsTimeZonesUrl, GraphApi.IanaTimeZonesUrl })
             {
-                var zonePage = await GetAsync(zoneUrl).ConfigureAwait(false);
+                if (await GetAsync(zoneUrl).ConfigureAwait(false) is not { } zonePage) { return false; }
                 if (zonePage.TryGetProperty("@odata.nextLink", out _))
                 {
-                    throw new InvalidDataException("Unexpected supported-zone continuation requires adapter review.");
+                    holds.Add("Unexpected supported-zone continuation requires adapter review.");
+                    return false;
                 }
                 zones.Add(zonePage);
-                if (zonePage.GetProperty("value").GetArrayLength() == 0)
+                if (!GraphJson.TryArray(zonePage, "value", out var aliases) || aliases.GetArrayLength() == 0)
                 {
-                    throw new InvalidDataException("Supported-zone response was empty.");
+                    holds.Add("Supported-zone response was empty or malformed.");
+                    return false;
                 }
             }
+            return true;
         }
 
         async Task ReadCalendarViewAsync()
@@ -72,56 +81,76 @@ public sealed class CalendarReadProbe(GraphTransport transport)
             {
                 if (pages >= options.MaxPages || !visited.Add(next))
                 {
-                    throw new InvalidDataException("Page budget exhausted or continuation cycle observed.");
+                    holds.Add("Page budget exhausted or continuation cycle observed.");
+                    return;
                 }
                 if (!GraphApi.IsCalendarViewUri(next))
                 {
-                    throw new InvalidDataException("Continuation escaped the calendar-view endpoint.");
+                    holds.Add("Continuation escaped the calendar-view endpoint.");
+                    return;
                 }
-                var page = await GetAsync(next).ConfigureAwait(false);
+                if (await GetAsync(next).ConfigureAwait(false) is not { } page) { return; }
                 pages++;
-                foreach (var item in page.GetProperty("value").EnumerateArray())
+                if (!GraphJson.TryArray(page, "value", out var values))
                 {
-                    if (!state.AdmitObservation(item)) { continue; }
-                    var detail = await GetAsync(GraphApi.ProbeEventDetail(GraphJson.Text(item, "id")!)).ConfigureAwait(false);
+                    holds.Add("Malformed calendar-view response.");
+                    return;
+                }
+                foreach (var item in values.EnumerateArray())
+                {
+                    if (!state.AdmitObservation(item))
+                    {
+                        if (state.Hold is not null) { return; }
+                        continue;
+                    }
+                    if (await GetAsync(GraphApi.ProbeEventDetail(GraphJson.Text(item, "id")!)).ConfigureAwait(false) is not { } detail) { return; }
                     state.RecordDetail(item, detail);
+                    if (state.Hold is not null) { return; }
                 }
                 var continuation = DiscoveryContinuation.Parse(page);
                 if (continuation.Kind == DiscoveryContinuationKind.Invalid)
                 {
-                    throw new InvalidDataException("Malformed continuation.");
+                    holds.Add("Malformed continuation.");
+                    return;
                 }
                 next = continuation.Address;
             }
         }
 
-        try
+        async Task ReadAsync()
         {
-            var me = await GetAsync(GraphApi.IdentityUrl).ConfigureAwait(false);
+            if (await GetAsync(GraphApi.IdentityUrl).ConfigureAwait(false) is not { } me) { return; }
             if (GraphJson.Text(me, "id") != options.MailboxId)
             {
-                throw new InvalidDataException("Mailbox identity did not match the configured object ID.");
+                holds.Add("Mailbox identity did not match the configured object ID.");
+                return;
             }
-            var calendar = await GetAsync(GraphApi.DefaultCalendarUrl).ConfigureAwait(false);
+            if (await GetAsync(GraphApi.DefaultCalendarUrl).ConfigureAwait(false) is not { } calendar) { return; }
             calendarId = GraphJson.Text(calendar, "id");
-            var owner = calendar.GetProperty("owner").GetProperty("address").GetString();
-            if (string.IsNullOrEmpty(calendarId) || !calendar.GetProperty("isDefaultCalendar").GetBoolean()
+            var owner = calendar.TryGetProperty("owner", out var ownerValue) ? GraphJson.Text(ownerValue, "address") : null;
+            if (string.IsNullOrEmpty(calendarId) || GraphJson.Boolean(calendar, "isDefaultCalendar") != true
                 || string.IsNullOrEmpty(owner) || !(string.Equals(owner, GraphJson.Text(me, "mail"), StringComparison.OrdinalIgnoreCase)
                     || string.Equals(owner, GraphJson.Text(me, "userPrincipalName"), StringComparison.OrdinalIgnoreCase)))
             {
-                throw new InvalidDataException("Default calendar ownership could not be established.");
+                holds.Add("Default calendar ownership could not be established.");
+                return;
             }
-            await ReadSupportedZonesAsync().ConfigureAwait(false);
+            if (!await ReadSupportedZonesAsync().ConfigureAwait(false)) { return; }
             await ReadCalendarViewAsync().ConfigureAwait(false);
+        }
+        try
+        {
+            await ReadAsync().ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
             holds.Add("Run duration exhausted or request timed out. Scope is incomplete.");
         }
-        catch (Exception ex) when (ex is InvalidDataException or HttpRequestException or JsonException or KeyNotFoundException or InvalidOperationException or FormatException or UriFormatException)
+        catch (Exception ex) when (ex is HttpRequestException or IOException or InvalidDataException)
         {
-            holds.Add(ex is InvalidDataException ? ex.Message : $"Read failed ({ex.GetType().Name}). Scope is incomplete.");
+            holds.Add($"Read failed ({ex.GetType().Name}). Scope is incomplete.");
         }
+        if (state.Hold is not null) { holds.Add(state.Hold); }
         return new(started, options, holds.Count == 0, holds.ToArray(), calendarId, pages, state.DetailReads, state.Observations,
             state.OrganizerMeetings, timer.Elapsed.TotalSeconds, state.Events.ToArray(), zones.ToArray(), exchanges.ToArray());
     }

@@ -10,6 +10,7 @@ internal sealed class ReadProbeState(ReadProbeOptions options)
     internal IReadOnlyList<JsonElement> Events => _events.Values.ToArray();
     internal int Observations { get; private set; }
     internal int DetailReads { get; private set; }
+    internal string? Hold { get; private set; }
     internal int OrganizerMeetings => _events.Values.Count(e => e.GetProperty("isOrganizer").GetBoolean()
         && GraphJson.Text(e, "type") == "singleInstance" && e.GetProperty("attendees").GetArrayLength() > 0);
 
@@ -17,11 +18,13 @@ internal sealed class ReadProbeState(ReadProbeOptions options)
     {
         if (++Observations > options.MaxEvents)
         {
-            throw new InvalidDataException("Observation budget exhausted. Narrow the scope or explicitly increase its budget.");
+            Hold = "Observation budget exhausted. Narrow the scope or explicitly increase its budget.";
+            return false;
         }
         if (!ReadProbeValidation.IsValid(observation))
         {
-            throw new InvalidDataException("Missing or malformed required discovery/classification fields in calendar-view observation.");
+            Hold = "Missing or malformed required discovery/classification fields in calendar-view observation.";
+            return false;
         }
 
         var id = GraphJson.Text(observation, "id")!;
@@ -29,7 +32,7 @@ internal sealed class ReadProbeState(ReadProbeOptions options)
         {
             if (!ReadProbeValidation.Equivalent(previous, observation))
             {
-                throw new InvalidDataException("Repeated identity has differing version or evidence.");
+                Hold = "Repeated identity has differing version or evidence.";
             }
             return false;
         }
@@ -37,7 +40,8 @@ internal sealed class ReadProbeState(ReadProbeOptions options)
         _observations.Add(id, observation.Clone());
         if (DetailReads >= options.MaxDetailReads)
         {
-            throw new InvalidDataException("Detail-read budget exhausted.");
+            Hold = "Detail-read budget exhausted.";
+            return false;
         }
         DetailReads++;
         return true;
@@ -47,11 +51,13 @@ internal sealed class ReadProbeState(ReadProbeOptions options)
     {
         if (!ReadProbeValidation.IsValid(detail))
         {
-            throw new InvalidDataException("Missing or malformed required discovery/classification fields in event detail.");
+            Hold = "Missing or malformed required discovery/classification fields in event detail.";
+            return;
         }
         if (!ReadProbeValidation.Equivalent(observation, detail))
         {
-            throw new InvalidDataException("Identity, version or relevant evidence changed between view and detail.");
+            Hold = "Identity, version or relevant evidence changed between view and detail.";
+            return;
         }
         _events.Add(GraphJson.Text(observation, "id")!, detail.Clone());
     }

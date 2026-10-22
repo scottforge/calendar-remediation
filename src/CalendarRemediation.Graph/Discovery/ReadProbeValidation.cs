@@ -20,7 +20,7 @@ internal static class ReadProbeValidation
         });
 
     private static bool HasIdentityAndTiming(JsonElement item) =>
-        !string.IsNullOrWhiteSpace(GraphJson.Text(item, "id"))
+        GraphJson.Text(item, "id") is { } id && !string.IsNullOrWhiteSpace(id) && id is not ("." or "..") && !id.Any(char.IsControl)
         && !string.IsNullOrWhiteSpace(GraphJson.Text(item, "changeKey"))
         && !string.IsNullOrWhiteSpace(GraphJson.Text(item, "originalStartTimeZone"))
         && !string.IsNullOrWhiteSpace(GraphJson.Text(item, "originalEndTimeZone"))
