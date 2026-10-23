@@ -5,6 +5,9 @@ Review the meetings you organized, choose which ones to correct, and approve the
 
 ## How it works
 
+> This is a prototype proof-of-concept for using Graph API to update Outlook calendar events.
+> Several features are not implemented and/or not yet production-ready.
+
 - Sign in with your Microsoft 365 work account and confirm your location.
 - Review all meetings you organized over the next 90 days, with an optional date-range filter.
 - Optionally ask Copilot to select meetings that may need a local-time correction, or batch update meetings yourself.
@@ -75,4 +78,5 @@ When pushed to `main`, it restores, verifies formatting, builds with analyzers, 
 
 ## License
 
-No license yet.
+This project is licensed under the MIT License.
+See the [LICENSE](LICENSE) file for details.
